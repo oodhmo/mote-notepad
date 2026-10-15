@@ -380,6 +380,52 @@ void ReplaceTextColor(HWND editor, long from, long to)
     SendMessageW(editor, EM_SETMODIFY, wasModified, 0);
 }
 
+FormatState GetSelectionFormat(HWND editor)
+{
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    SendMessageW(editor, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+
+    // dwMask에 비트가 있으면 선택 영역 전체가 같은 값이라는 뜻이다
+    FormatState state;
+    state.bold = (cf.dwMask & CFM_BOLD) && (cf.dwEffects & CFE_BOLD);
+    state.italic = (cf.dwMask & CFM_ITALIC) && (cf.dwEffects & CFE_ITALIC);
+    state.underline = (cf.dwMask & CFM_UNDERLINE) && (cf.dwEffects & CFE_UNDERLINE);
+    state.colorMixed = !(cf.dwMask & CFM_COLOR);
+    state.color = (cf.dwEffects & CFE_AUTOCOLOR) ? DefaultTextColor() : cf.crTextColor;
+    return state;
+}
+
+void ToggleSelectionEffect(HWND editor, DWORD effect)
+{
+    // CFE_* 효과 비트와 CFM_* 마스크 비트는 같은 값이다 (CFE_BOLD == CFM_BOLD 등)
+    CHARFORMAT2W current = {};
+    current.cbSize = sizeof(current);
+    SendMessageW(editor, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&current));
+    const bool allOn = (current.dwMask & effect) && (current.dwEffects & effect);
+
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = effect;
+    cf.dwEffects = allOn ? 0 : effect;
+    if (effect == CFE_UNDERLINE) {
+        cf.dwMask |= CFM_UNDERLINETYPE;
+        cf.bUnderlineType = allOn ? CFU_UNDERLINENONE : CFU_UNDERLINE;
+    }
+    SendMessageW(editor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+}
+
+void SetSelectionColor(HWND editor, COLORREF color)
+{
+    // CFE_AUTOCOLOR를 끄고 명시 색을 지정한다 (기본색도 명시 색으로 다룬다: DefaultCharFormat 참고)
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR;
+    cf.dwEffects = 0;
+    cf.crTextColor = color;
+    SendMessageW(editor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+}
+
 void MarkEditorClean(HWND editor)
 {
     SendMessageW(editor, EM_EMPTYUNDOBUFFER, 0, 0);

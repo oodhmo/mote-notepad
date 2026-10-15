@@ -29,3 +29,20 @@ void MarkEditorClean(HWND editor);
 
 // 현재 테마의 기본 글자색
 COLORREF DefaultTextColor();
+
+// 선택 영역(선택이 없으면 캐럿 위치의 입력 서식) 상태. 상단 바 표시용.
+struct FormatState {
+    bool bold = false;
+    bool italic = false;
+    bool underline = false;
+    bool colorMixed = false;  // 선택 영역에 여러 색이 섞여 있음
+    COLORREF color = 0;
+};
+
+FormatState GetSelectionFormat(HWND editor);
+
+// 선택 영역 전체가 해당 효과를 가지고 있으면 끄고, 아니면 켠다 (CFE_BOLD / CFE_ITALIC / CFE_UNDERLINE)
+void ToggleSelectionEffect(HWND editor, DWORD effect);
+
+// 선택 영역의 글자색을 바꾼다. 선택이 없으면 이후 입력할 글자의 색이 바뀐다.
+void SetSelectionColor(HWND editor, COLORREF color);

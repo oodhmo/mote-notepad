@@ -17,6 +17,9 @@ const ThemeColors& CurrentTheme();
 // UI에 사용할 글꼴 이름 ("Segoe UI Variable Text"가 없으면 "Segoe UI")
 const wchar_t* UiFontFace();
 
+// 툴바 아이콘 글꼴 (Windows 11: Segoe Fluent Icons, Windows 10: Segoe MDL2 Assets)
+const wchar_t* IconFontFace();
+
 // 96 DPI 기준 픽셀 값을 현재 DPI로 변환한다
 inline int Scale(int value, UINT dpi) { return MulDiv(value, static_cast<int>(dpi), 96); }
 

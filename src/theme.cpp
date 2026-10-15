@@ -45,6 +45,13 @@ const wchar_t* UiFontFace()
     return face;
 }
 
+const wchar_t* IconFontFace()
+{
+    // 두 글꼴은 굵게/기울임/밑줄 아이콘의 코드포인트가 같다
+    static const wchar_t* face = FontExists(L"Segoe Fluent Icons") ? L"Segoe Fluent Icons" : L"Segoe MDL2 Assets";
+    return face;
+}
+
 HFONT CreateUiFont(int pointTenths, UINT dpi, int weight, const wchar_t* face)
 {
     LOGFONTW lf = {};
