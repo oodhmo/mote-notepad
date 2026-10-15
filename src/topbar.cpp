@@ -134,66 +134,12 @@ Gdiplus::Color ToGdiplus(COLORREF color)
     return Gdiplus::Color(255, GetRValue(color), GetGValue(color), GetBValue(color));
 }
 
-// GDI의 RoundRect는 안티앨리어싱이 없어 모서리가 거칠어 GDI+로 그린다
-void FillRoundRect(Gdiplus::Graphics& graphics, const RECT& rect, COLORREF color, int radius)
-{
-    const auto left = static_cast<Gdiplus::REAL>(rect.left);
-    const auto top = static_cast<Gdiplus::REAL>(rect.top);
-    const auto right = static_cast<Gdiplus::REAL>(rect.right);
-    const auto bottom = static_cast<Gdiplus::REAL>(rect.bottom);
-    const auto d = static_cast<Gdiplus::REAL>(radius * 2);
-
-    Gdiplus::GraphicsPath path;
-    path.AddArc(left, top, d, d, 180.0f, 90.0f);
-    path.AddArc(right - d, top, d, d, 270.0f, 90.0f);
-    path.AddArc(right - d, bottom - d, d, d, 0.0f, 90.0f);
-    path.AddArc(left, bottom - d, d, d, 90.0f, 90.0f);
-    path.CloseFigure();
-    Gdiplus::SolidBrush brush(ToGdiplus(color));
-    graphics.FillPath(&brush, &path);
-}
-
 Gdiplus::RectF CircleRect(const RECT& cell, int diameter)
 {
     const auto d = static_cast<Gdiplus::REAL>(diameter);
     const auto cx = (cell.left + cell.right) / 2.0f;
     const auto cy = (cell.top + cell.bottom) / 2.0f;
     return Gdiplus::RectF(cx - d / 2, cy - d / 2, d, d);
-}
-
-// 메모리 비트맵에 그린 뒤 한 번에 복사해 깜빡임을 막는다
-struct BufferedPaint {
-    PAINTSTRUCT ps{};
-    HDC target = nullptr;
-    HDC dc = nullptr;
-    HBITMAP bitmap = nullptr;
-    HGDIOBJ oldBitmap = nullptr;
-    HWND hwnd;
-    RECT client{};
-
-    explicit BufferedPaint(HWND window) : hwnd(window)
-    {
-        target = BeginPaint(hwnd, &ps);
-        GetClientRect(hwnd, &client);
-        dc = CreateCompatibleDC(target);
-        bitmap = CreateCompatibleBitmap(target, client.right, client.bottom);
-        oldBitmap = SelectObject(dc, bitmap);
-    }
-    ~BufferedPaint()
-    {
-        BitBlt(target, 0, 0, client.right, client.bottom, dc, 0, 0, SRCCOPY);
-        SelectObject(dc, oldBitmap);
-        DeleteObject(bitmap);
-        DeleteDC(dc);
-        EndPaint(hwnd, &ps);
-    }
-};
-
-void FillSolid(HDC dc, const RECT& rect, COLORREF color)
-{
-    HBRUSH brush = CreateSolidBrush(color);
-    FillRect(dc, &rect, brush);
-    DeleteObject(brush);
 }
 
 int HitTestRects(const RECT* rects, int count, POINT pt)

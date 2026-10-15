@@ -12,6 +12,11 @@
 #define IDM_FILE_EXIT       1005
 #define IDM_FILE_NEWWINDOW  1006
 
+// File > Open Recent (최근 파일 8개: FIRST ~ FIRST+7)
+#define IDM_FILE_RECENT_FIRST   1010
+#define IDM_FILE_RECENT_CLEAR   1020
+#define IDM_FILE_RECENT_EMPTY   1021
+
 // Edit 메뉴
 #define IDM_EDIT_UNDO       1101
 #define IDM_EDIT_REDO       1102
@@ -19,6 +24,10 @@
 #define IDM_EDIT_COPY       1104
 #define IDM_EDIT_PASTE      1105
 #define IDM_EDIT_SELECTALL  1106
+#define IDM_EDIT_FIND       1107
+#define IDM_EDIT_FINDNEXT   1108
+#define IDM_EDIT_FINDPREV   1109
+#define IDM_EDIT_REPLACE    1110
 
 // 서식 (상단 바 버튼, Ctrl+B/I/U)
 #define IDM_FORMAT_BOLD         1201

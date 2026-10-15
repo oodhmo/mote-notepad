@@ -2,7 +2,9 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <commdlg.h>
+#include <dwmapi.h>
 #include <shellapi.h>
+#include <shlwapi.h>
 #include <windowsx.h>
 #include <richedit.h>
 #include <algorithm>
@@ -12,9 +14,13 @@ using std::min;
 }  // namespace Gdiplus
 #include <gdiplus.h>
 #include <string>
+#include <vector>
 
+#include "confirm.h"
 #include "editor.h"
 #include "file_io.h"
+#include "findbar.h"
+#include "settings.h"
 #include "theme.h"
 #include "topbar.h"
 #include "../resources/resource.h"
@@ -33,19 +39,23 @@ constexpr UINT_PTR kHoverTimerId = 1;
 constexpr UINT kHoverTimerMs = 100;
 constexpr int kExpandZoneWidth = 72;       // 접힌 상태에서 펼치기 화살표를 보여 줄 오른쪽 위 영역의 폭 (96 DPI 기준)
 constexpr DWORD kHideDelayMs = 300;        // 커서가 벗어난 뒤 숨기기까지 기다리는 시간
-constexpr wchar_t kSettingsKey[] = L"Software\\mote";
-constexpr wchar_t kToolbarCollapsedValue[] = L"ToolbarCollapsed";
+
+constexpr UINT kRecentPathChars = 60;      // 최근 파일 메뉴에서 경로를 줄여 보여 줄 길이
 
 struct AppState {
     HINSTANCE instance = nullptr;
     HWND window = nullptr;
     HWND topBar = nullptr;
     HWND editor = nullptr;
+    HWND findBar = nullptr;
+    HWND restoreFocus = nullptr; // 창이 비활성화될 때 포커스가 있던 자식 (다시 활성화되면 돌려준다)
     HMENU menus = nullptr;       // File/Edit 팝업 메뉴 리소스
+    HMENU recentMenu = nullptr;  // File > Open Recent 하위 메뉴
     HACCEL accelerators = nullptr;
     UINT dpi = 96;
     std::wstring filePath;       // 비어 있으면 저장된 적 없는 새 문서
     FileFormat format = FileFormat::Rtf;
+    bool titleModified = false;     // 제목에 수정 표시(*)를 붙여 둔 상태인지
     bool toolbarCollapsed = false;  // 사용자가 상단 바를 접었는지
     bool toolbarPeeking = false;    // 접힌 바를 Alt+F / Alt+E로 잠깐 보여 주는 중인지
     bool expandVisible = false;     // 접힌 상태에서 오른쪽 위 펼치기 화살표가 보이는 중인지
@@ -59,14 +69,29 @@ void ShowError(const wchar_t* title, const std::wstring& detail)
     TaskDialog(g_app.window, nullptr, kAppName, title, detail.c_str(), TDCBF_OK_BUTTON, TD_ERROR_ICON, nullptr);
 }
 
+std::wstring DocumentName()
+{
+    if (g_app.filePath.empty()) return L"제목 없음";
+    const size_t slash = g_app.filePath.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? g_app.filePath : g_app.filePath.substr(slash + 1);
+}
+
+bool IsDocumentModified()
+{
+    return SendMessageW(g_app.editor, EM_GETMODIFY, 0, 0) != 0;
+}
+
+// 제목: "파일명 - mote", 저장되지 않은 변경이 있으면 "*파일명 - mote"
 void UpdateTitle()
 {
-    std::wstring name = L"제목 없음";
-    if (!g_app.filePath.empty()) {
-        const size_t slash = g_app.filePath.find_last_of(L"\\/");
-        name = slash == std::wstring::npos ? g_app.filePath : g_app.filePath.substr(slash + 1);
-    }
-    SetWindowTextW(g_app.window, (name + L" - " + kAppName).c_str());
+    g_app.titleModified = IsDocumentModified();
+    SetWindowTextW(g_app.window, ((g_app.titleModified ? L"*" : L"") + DocumentName() + L" - " + kAppName).c_str());
+}
+
+// 문서 내용이나 선택이 바뀔 때마다 호출된다. 수정 상태가 바뀐 경우에만 제목을 다시 쓴다.
+void OnEditorChanged()
+{
+    if (IsDocumentModified() != g_app.titleModified) UpdateTitle();
 }
 
 // 에디터 본문 영역(세로 스크롤바 제외)의 오른쪽 끝 x 좌표 (메인 창 클라이언트 기준)
@@ -100,14 +125,19 @@ void LayoutChildren()
     GetClientRect(g_app.window, &client);
     const int barHeight = TopBarHeight(g_app.dpi);
     // 접힌 상태에서는 에디터가 클라이언트 전체를 쓰고, 바는 Alt+F/E로 잠깐 보여 줄 때만 에디터 위에 겹친다
-    const int editorTop = g_app.toolbarCollapsed ? 0 : barHeight;
+    const int findTop = g_app.toolbarCollapsed ? 0 : barHeight;
     const bool barVisible = !g_app.toolbarCollapsed || g_app.toolbarPeeking;
+    const bool findVisible = IsFindBarVisible();
+    const int findHeight = findVisible ? FindBarHeight(g_app.dpi) : 0;
+    const int editorTop = findTop + findHeight;
 
-    // 두 자식을 한 번에 옮겨 크기 조절 중 깜빡임을 줄인다.
-    // 바를 HWND_TOP으로 두어 겹칠 때 에디터보다 위에 그려지게 한다 (둘 다 WS_CLIPSIBLINGS).
-    HDWP dwp = BeginDeferWindowPos(2);
+    // 자식들을 한 번에 옮겨 크기 조절 중 깜빡임을 줄인다.
+    // 바를 HWND_TOP으로 두어 겹칠 때 에디터/찾기 바보다 위에 그려지게 한다 (모두 WS_CLIPSIBLINGS).
+    HDWP dwp = BeginDeferWindowPos(3);
     dwp = DeferWindowPos(dwp, g_app.topBar, HWND_TOP, 0, 0, client.right, barHeight,
                          SWP_NOACTIVATE | (barVisible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+    dwp = DeferWindowPos(dwp, g_app.findBar, nullptr, 0, findTop, client.right, std::max(findHeight, 1),
+                         SWP_NOZORDER | SWP_NOACTIVATE | (findVisible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
     dwp = DeferWindowPos(dwp, g_app.editor, nullptr, 0, editorTop, client.right,
                          std::max(0, static_cast<int>(client.bottom) - editorTop), SWP_NOZORDER | SWP_NOACTIVATE);
     EndDeferWindowPos(dwp);
@@ -115,19 +145,6 @@ void LayoutChildren()
 }
 
 // ---- 상단 바 접기 ----
-
-bool LoadToolbarCollapsed()
-{
-    DWORD value = 0, size = sizeof(value);
-    return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kToolbarCollapsedValue, RRF_RT_REG_DWORD,
-                        nullptr, &value, &size) == ERROR_SUCCESS && value != 0;
-}
-
-void SaveToolbarCollapsed(bool collapsed)
-{
-    const DWORD value = collapsed ? 1 : 0;
-    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kToolbarCollapsedValue, REG_DWORD, &value, sizeof(value));
-}
 
 // 잠깐 보이는 바 / 펼치기 화살표를 모두 숨기고 타이머를 멈춘다
 void EndTransientUi()
@@ -184,6 +201,7 @@ void OnHoverTimer()
 void CheckExpandZone(const MSG& msg)
 {
     if (!g_app.toolbarCollapsed || g_app.toolbarPeeking || g_app.expandVisible) return;
+    if (IsFindBarVisible()) return;  // 펼치기 화살표 자리가 찾기 바의 닫기 버튼과 겹친다 (Ctrl+\로는 펼칠 수 있다)
     if (msg.wParam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON)) return;  // 드래그로 선택 중이면 무시
     if (msg.hwnd != g_app.window && GetAncestor(msg.hwnd, GA_ROOT) != g_app.window) return;
 
@@ -250,14 +268,43 @@ void ChooseCustomColor()
 
 void ToggleEffect(DWORD effect)
 {
+    // Ctrl+B/I/U 가속키는 찾기 입력란에 포커스가 있어도 오므로, 그때는 본문 서식을 바꾸지 않는다
+    if (FindBarHasFocus()) return;
     ToggleSelectionEffect(g_app.editor, effect);
     RefreshFormatState();
 }
 
 // ---- 파일 명령 ----
 
+bool SaveDocument();
+
+// 저장되지 않은 변경이 있으면 저장할지 묻는다. 계속 진행해도 되면 true (저장함 / 저장 안 함).
+bool ConfirmDiscardChanges()
+{
+    if (!IsDocumentModified()) return true;
+
+    switch (AskSaveChanges(g_app.window, DocumentName())) {
+    case SaveChoice::Save:     return SaveDocument();  // 다른 이름으로 저장을 취소하거나 저장에 실패하면 진행하지 않는다
+    case SaveChoice::DontSave: return true;
+    default:                   return false;
+    }
+}
+
+// 현재 파일 또는 가장 최근 파일이 있는 폴더 (열기 대화상자의 시작 위치)
+std::wstring StartFolder()
+{
+    std::wstring path = g_app.filePath;
+    if (path.empty()) {
+        const std::vector<std::wstring> recent = LoadRecentFiles();
+        if (!recent.empty()) path = recent.front();
+    }
+    const size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? std::wstring() : path.substr(0, slash);
+}
+
 void NewDocument()
 {
+    if (!ConfirmDiscardChanges()) return;
     ResetEditorDocument(g_app.editor);
     g_app.filePath.clear();
     g_app.format = FileFormat::Rtf;
@@ -270,11 +317,13 @@ bool OpenDocument(const std::wstring& path)
     FileFormat format = FileFormat::Rtf;
     std::wstring error;
     if (!LoadFileIntoEditor(g_app.editor, path, format, error)) {
+        RemoveRecentFile(path);  // 지워졌거나 옮겨진 파일이 최근 목록에 계속 남지 않게 한다
         ShowError(L"파일을 열 수 없습니다.", path + L"\n\n" + error);
         return false;
     }
     g_app.filePath = path;
     g_app.format = format;
+    AddRecentFile(path);
     UpdateTitle();
     RefreshFormatState();
     return true;
@@ -293,6 +342,7 @@ bool SaveDocumentAs()
     }
     g_app.filePath = path;
     g_app.format = format;
+    AddRecentFile(path);
     UpdateTitle();
     return true;
 }
@@ -305,6 +355,7 @@ bool SaveDocument()
         ShowError(L"파일을 저장할 수 없습니다.", g_app.filePath + L"\n\n" + error);
         return false;
     }
+    AddRecentFile(g_app.filePath);
     UpdateTitle();
     return true;
 }
@@ -338,8 +389,56 @@ void OpenNewWindow()
 
 void CommandOpen()
 {
+    if (!ConfirmDiscardChanges()) return;
     std::wstring path;
-    if (ShowOpenDialog(g_app.window, path)) OpenDocument(path);
+    if (ShowOpenDialog(g_app.window, StartFolder(), path)) OpenDocument(path);
+}
+
+void OpenRecent(size_t index)
+{
+    const std::vector<std::wstring> recent = LoadRecentFiles();
+    if (index >= recent.size() || !ConfirmDiscardChanges()) return;
+    OpenDocument(recent[index]);
+}
+
+// ---- 최근 파일 메뉴 ----
+
+// 메뉴가 열릴 때마다 레지스트리의 목록으로 다시 채운다 (다른 mote 창에서 연 파일도 보인다)
+void FillRecentMenu(HMENU menu)
+{
+    while (GetMenuItemCount(menu) > 0) DeleteMenu(menu, 0, MF_BYPOSITION);
+
+    const std::vector<std::wstring> recent = LoadRecentFiles();
+    if (recent.empty()) {
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_FILE_RECENT_EMPTY, L"(Empty)");
+        return;
+    }
+    for (size_t i = 0; i < recent.size(); ++i) {
+        // 긴 경로는 "C:\...\note.rtf"처럼 줄인다
+        wchar_t compact[MAX_PATH] = {};
+        if (!PathCompactPathExW(compact, recent[i].c_str(), kRecentPathChars, 0)) {
+            wcsncpy_s(compact, recent[i].c_str(), _TRUNCATE);
+        }
+        // 경로의 &는 메뉴에서 단축키 표시로 해석되므로 &&로 바꾼다
+        std::wstring label = L"&" + std::to_wstring(i + 1) + L"  ";
+        for (const wchar_t* p = compact; *p; ++p) {
+            if (*p == L'&') label += L'&';
+            label += *p;
+        }
+        AppendMenuW(menu, MF_STRING, IDM_FILE_RECENT_FIRST + i, label.c_str());
+    }
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, IDM_FILE_RECENT_CLEAR, L"&Clear Recent List");
+}
+
+HMENU FindRecentSubmenu()
+{
+    HMENU fileMenu = GetSubMenu(g_app.menus, 0);
+    const int count = GetMenuItemCount(fileMenu);
+    for (int i = 0; i < count; ++i) {
+        if (HMENU sub = GetSubMenu(fileMenu, i)) return sub;
+    }
+    return nullptr;
 }
 
 // ---- 메뉴 ----
@@ -352,6 +451,10 @@ void EnableItem(HMENU menu, UINT id, bool enabled)
 // 메뉴가 열리기 직전에 현재 편집 상태에 맞게 항목을 활성/비활성화한다
 void UpdateMenuState(HMENU menu)
 {
+    if (menu == g_app.recentMenu) {
+        FillRecentMenu(menu);
+        return;
+    }
     CHARRANGE sel;
     SendMessageW(g_app.editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
     const bool hasSelection = sel.cpMax > sel.cpMin;
@@ -368,7 +471,13 @@ void UpdateMenuState(HMENU menu)
 
 void OnCommand(UINT id)
 {
+    if (id >= IDM_FILE_RECENT_FIRST && id < IDM_FILE_RECENT_FIRST + kMaxRecentFiles) {
+        OpenRecent(id - IDM_FILE_RECENT_FIRST);
+        return;
+    }
     switch (id) {
+    case IDM_FILE_RECENT_CLEAR: ClearRecentFiles(); break;
+
     case IDM_FILE_NEW:       NewDocument(); break;
     case IDM_FILE_NEWWINDOW: OpenNewWindow(); break;
     case IDM_FILE_OPEN:      CommandOpen(); break;
@@ -386,6 +495,10 @@ void OnCommand(UINT id)
         SendMessageW(g_app.editor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&all));
         break;
     }
+    case IDM_EDIT_FIND:      ShowFindBar(false); break;
+    case IDM_EDIT_REPLACE:   ShowFindBar(true); break;
+    case IDM_EDIT_FINDNEXT:  FindNextFromBar(true); break;
+    case IDM_EDIT_FINDPREV:  FindNextFromBar(false); break;
 
     case IDM_FORMAT_BOLD:        ToggleEffect(CFE_BOLD); break;
     case IDM_FORMAT_ITALIC:      ToggleEffect(CFE_ITALIC); break;
@@ -399,8 +512,20 @@ void OnCommand(UINT id)
     }
 }
 
+// 시스템 제목 표시줄을 본문과 같은 색으로 칠해 상단 바와 하나로 이어 보이게 한다.
+// 최소화/최대화/닫기 버튼은 그대로 시스템 것을 쓴다. Windows 10에서는 실패하며 기본 색이 유지된다.
+void ApplyTitleBarColors(HWND hwnd)
+{
+    const ThemeColors& theme = CurrentTheme();
+    const COLORREF caption = theme.windowBg;
+    const COLORREF text = theme.text;
+    DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+    DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &text, sizeof(text));
+}
+
 bool OnCreate(HWND hwnd)
 {
+    ApplyTitleBarColors(hwnd);
     g_app.window = hwnd;
     g_app.dpi = GetDpiForWindow(hwnd);
 
@@ -412,6 +537,9 @@ bool OnCreate(HWND hwnd)
     g_app.topBar = CreateTopBar(hwnd, g_app.instance, g_app.menus);
     g_app.editor = CreateEditor(hwnd, g_app.instance, GetSubMenu(g_app.menus, 1));
     if (!g_app.menus || !g_app.topBar || !g_app.editor) return false;
+    g_app.findBar = CreateFindBar(hwnd, g_app.instance, g_app.editor);
+    if (!g_app.findBar) return false;
+    g_app.recentMenu = FindRecentSubmenu();
 
     SetEditorDpi(g_app.editor, g_app.dpi);
     g_app.toolbarCollapsed = LoadToolbarCollapsed();
@@ -444,15 +572,40 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_app.dpi = HIWORD(wp);
         const RECT* suggested = reinterpret_cast<const RECT*>(lp);
         SetTopBarDpi(g_app.topBar, g_app.dpi);
+        SetFindBarDpi(g_app.dpi);
         SetEditorDpi(g_app.editor, g_app.dpi);
         SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                      suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
     }
 
-    case WM_SETFOCUS:
-        // 창이 활성화되면 항상 편집 영역에 입력 포커스를 준다
-        if (g_app.editor) SetFocus(g_app.editor);
+    case WM_ACTIVATE:
+        // 다른 창으로 전환될 때 포커스가 있던 곳(에디터 또는 찾기 입력란)을 기억해 둔다
+        if (LOWORD(wp) == WA_INACTIVE) {
+            HWND focus = GetFocus();
+            g_app.restoreFocus = (focus && IsChild(hwnd, focus)) ? focus : nullptr;
+        }
+        break;
+
+    case WM_SETFOCUS: {
+        // 창이 다시 활성화되면 기억해 둔 곳에, 없으면 편집 영역에 입력 포커스를 준다
+        HWND target = g_app.restoreFocus;
+        if (!target || !IsWindowVisible(target)) target = g_app.editor;
+        if (target) SetFocus(target);
+        return 0;
+    }
+
+    case WM_CLOSE:
+        // 저장되지 않은 변경이 있으면 확인한 뒤에만 창을 닫는다 (File > Exit도 여기로 온다)
+        if (ConfirmDiscardChanges()) DestroyWindow(hwnd);
+        return 0;
+
+    case WM_QUERYENDSESSION:
+        // 로그오프/종료 시에도 저장 여부를 묻는다. 취소하면 종료를 막는다.
+        return ConfirmDiscardChanges() ? TRUE : FALSE;
+
+    case WM_MOTE_RELAYOUT:
+        LayoutChildren();
         return 0;
 
     case WM_INITMENUPOPUP:
@@ -461,13 +614,23 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
     case WM_COMMAND:
         // 메뉴/가속키/컨텍스트 메뉴 명령. 에디터 알림(EN_*)은 lParam이 컨트롤 핸들이다.
-        if (lp == 0 || reinterpret_cast<HWND>(lp) != g_app.editor) OnCommand(LOWORD(wp));
+        if (lp == 0 || reinterpret_cast<HWND>(lp) != g_app.editor) {
+            OnCommand(LOWORD(wp));
+        } else if (HIWORD(wp) == EN_CHANGE) {
+            OnEditorChanged();  // 입력/삭제/붙여넣기/실행 취소 → 제목의 수정 표시 갱신
+            NotifyFindBarDocumentChanged();
+        }
         return 0;
 
     case WM_NOTIFY: {
-        // 캐럿/선택이 바뀔 때마다 B/I/U 활성 상태와 색 표시를 갱신한다
+        // 캐럿/선택이 바뀔 때마다 B/I/U 활성 상태와 색 표시를 갱신한다.
+        // 모두 바꾸기처럼 EN_CHANGE가 오지 않을 수 있는 경우를 위해 수정 표시도 함께 확인한다.
         const auto* header = reinterpret_cast<const NMHDR*>(lp);
-        if (header->hwndFrom == g_app.editor && header->code == EN_SELCHANGE) RefreshFormatState();
+        if (header->hwndFrom == g_app.editor && header->code == EN_SELCHANGE) {
+            RefreshFormatState();
+            OnEditorChanged();
+            NotifyFindBarDocumentChanged();  // 캐럿이 옮겨지면 "현재 번호"가 바뀐다
+        }
         return 0;
     }
 
@@ -547,6 +710,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_MOUSEMOVE) CheckExpandZone(msg);
+        // 본문에서 Esc를 눌러도 찾기 바를 닫는다 (RichEdit는 Esc를 쓰지 않는다)
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && msg.hwnd == g_app.editor && IsFindBarVisible()) {
+            HideFindBar();
+            continue;
+        }
         if (TranslateAcceleratorW(window, g_app.accelerators, &msg)) continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);

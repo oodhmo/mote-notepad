@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <string>
 
 // TOM의 자동 색(tomAutoColor)과 같은 값. ReplaceTextColor의 인자로 사용한다.
 constexpr long kAutoColor = -9999997;
@@ -46,3 +47,28 @@ void ToggleSelectionEffect(HWND editor, DWORD effect);
 
 // 선택 영역의 글자색을 바꾼다. 선택이 없으면 이후 입력할 글자의 색이 바뀐다.
 void SetSelectionColor(HWND editor, COLORREF color);
+
+// ---- 찾기 / 바꾸기 (대소문자를 무시하는 단순 부분 문자열 검색) ----
+
+// 다음(forward) 또는 이전 일치 항목을 찾아 선택한다. 문서 끝(처음)에 닿으면 반대쪽부터 다시 찾는다.
+// fromSelectionStart: 앞으로 찾을 때 현재 선택의 시작부터 찾는다 (입력하는 동안 같은 위치를 유지하는 검색용)
+bool FindInEditor(HWND editor, const std::wstring& text, bool forward, bool fromSelectionStart = false);
+
+// 현재 선택이 찾는 문자열이면 바꾼 뒤 다음 항목을 찾는다. 다음 항목이 있으면 true.
+bool ReplaceCurrent(HWND editor, const std::wstring& find, const std::wstring& replacement);
+
+// 문서 전체를 바꾸고 바꾼 개수를 돌려준다. 한 번의 실행 취소로 모두 되돌릴 수 있다.
+int ReplaceAllInEditor(HWND editor, const std::wstring& find, const std::wstring& replacement);
+
+// 문서 전체의 일치 항목 수. current는 현재 선택과 같은 항목의 순번(1부터, 없으면 0).
+// 큰 문서에서 느려지지 않도록 limit개에서 세기를 멈춘다 (capped = true).
+struct MatchCount {
+    int current = 0;
+    int total = 0;
+    bool capped = false;
+};
+
+MatchCount CountMatches(HWND editor, const std::wstring& text, int limit);
+
+// 선택된 텍스트 (줄바꿈이 없고 maxLength 이하일 때만, 아니면 빈 문자열)
+std::wstring GetSingleLineSelection(HWND editor, size_t maxLength);

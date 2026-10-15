@@ -6,6 +6,7 @@
 #include <richedit.h>
 #include <richole.h>
 #include <tom.h>
+#include <algorithm>
 
 // 최신 SDK에만 있는 RichEdit 언어 옵션 비트
 #ifndef IMF_SPELLCHECKING
@@ -424,6 +425,152 @@ void SetSelectionColor(HWND editor, COLORREF color)
     cf.dwEffects = 0;
     cf.crTextColor = color;
     SendMessageW(editor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+}
+
+// ---- 찾기 / 바꾸기 ----
+
+namespace {
+
+LONG TextLength(HWND editor)
+{
+    GETTEXTLENGTHEX gtl = {GTL_NUMCHARS | GTL_PRECISE, 1200};
+    return static_cast<LONG>(SendMessageW(editor, EM_GETTEXTLENGTHEX, reinterpret_cast<WPARAM>(&gtl), 0));
+}
+
+// chrg 범위에서 text를 찾는다. FR_DOWN이 없으면 cpMin에서 cpMax(더 작은 위치) 쪽으로 거꾸로 찾는다.
+bool FindRange(HWND editor, const std::wstring& text, LONG from, LONG to, bool forward, CHARRANGE& found)
+{
+    FINDTEXTEXW ft = {};
+    ft.chrg = {from, to};
+    ft.lpstrText = text.c_str();
+    const LRESULT pos = SendMessageW(editor, EM_FINDTEXTEXW, forward ? FR_DOWN : 0, reinterpret_cast<LPARAM>(&ft));
+    if (pos < 0) return false;
+    found = ft.chrgText;
+    return true;
+}
+
+std::wstring SelectedText(HWND editor)
+{
+    CHARRANGE sel;
+    SendMessageW(editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
+    if (sel.cpMax <= sel.cpMin) return {};
+    std::wstring text(static_cast<size_t>(sel.cpMax - sel.cpMin) + 1, L'\0');
+    const LRESULT length = SendMessageW(editor, EM_GETSELTEXT, 0, reinterpret_cast<LPARAM>(text.data()));
+    text.resize(static_cast<size_t>(std::max<LRESULT>(0, std::min<LRESULT>(length, static_cast<LRESULT>(text.size())))));
+    return text;
+}
+
+bool EqualsIgnoreCase(const std::wstring& a, const std::wstring& b)
+{
+    return CompareStringOrdinal(a.c_str(), static_cast<int>(a.size()), b.c_str(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
+}
+
+}  // namespace
+
+bool FindInEditor(HWND editor, const std::wstring& text, bool forward, bool fromSelectionStart)
+{
+    if (text.empty()) return false;
+    CHARRANGE sel;
+    SendMessageW(editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
+
+    CHARRANGE found = {};
+    bool ok;
+    if (forward) {
+        const LONG start = fromSelectionStart ? sel.cpMin : sel.cpMax;
+        ok = FindRange(editor, text, start, -1, true, found) || FindRange(editor, text, 0, -1, true, found);
+    } else {
+        ok = FindRange(editor, text, sel.cpMin, 0, false, found) ||
+             FindRange(editor, text, TextLength(editor), 0, false, found);
+    }
+    if (!ok) return false;
+
+    SendMessageW(editor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&found));
+    SendMessageW(editor, EM_SCROLLCARET, 0, 0);
+    return true;
+}
+
+bool ReplaceCurrent(HWND editor, const std::wstring& find, const std::wstring& replacement)
+{
+    if (find.empty()) return false;
+    if (EqualsIgnoreCase(SelectedText(editor), find)) {
+        // EM_REPLACESEL은 선택 영역 첫 글자의 서식을 이어받으므로 글자색/굵게 등이 유지된다
+        SendMessageW(editor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(replacement.c_str()));
+        return FindInEditor(editor, find, true);
+    }
+    // 아직 일치 항목이 선택되지 않았으면 먼저 찾기만 한다
+    return FindInEditor(editor, find, true, true);
+}
+
+int ReplaceAllInEditor(HWND editor, const std::wstring& find, const std::wstring& replacement)
+{
+    if (find.empty()) return 0;
+
+    CHARRANGE original;
+    SendMessageW(editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&original));
+
+    // 바꾸는 동안 화면 갱신과 선택 변경 알림(상단 바 갱신)을 멈춘다
+    const LRESULT eventMask = SendMessageW(editor, EM_GETEVENTMASK, 0, 0);
+    SendMessageW(editor, EM_SETEVENTMASK, 0, eventMask & ~ENM_SELCHANGE);
+    long freezeCount = 0;
+    if (g_textDoc) {
+        g_textDoc->Freeze(&freezeCount);
+        // 모든 치환을 실행 취소 한 단계로 묶는다 (지원하지 않는 환경이면 단계별로 남는다)
+        g_textDoc->BeginEditCollection();
+    }
+
+    int count = 0;
+    LONG pos = 0;
+    CHARRANGE found = {};
+    while (FindRange(editor, find, pos, -1, true, found)) {
+        SendMessageW(editor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&found));
+        SendMessageW(editor, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(replacement.c_str()));
+        pos = found.cpMin + static_cast<LONG>(replacement.size());
+        ++count;
+    }
+
+    if (g_textDoc) {
+        g_textDoc->EndEditCollection();
+        g_textDoc->Unfreeze(&freezeCount);
+    }
+    SendMessageW(editor, EM_SETEVENTMASK, 0, eventMask);
+
+    // 캐럿은 원래 선택의 시작 위치로 돌려 놓는다 (이 선택 변경으로 상단 바/제목도 갱신된다)
+    const LONG caret = std::min(original.cpMin, TextLength(editor));
+    CHARRANGE restore = {caret, caret};
+    SendMessageW(editor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&restore));
+    SendMessageW(editor, EM_SCROLLCARET, 0, 0);
+    return count;
+}
+
+MatchCount CountMatches(HWND editor, const std::wstring& text, int limit)
+{
+    MatchCount result;
+    if (text.empty()) return result;
+    CHARRANGE sel;
+    SendMessageW(editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
+
+    LONG pos = 0;
+    CHARRANGE found = {};
+    while (FindRange(editor, text, pos, -1, true, found)) {
+        if (result.total == limit) {
+            result.capped = true;
+            break;
+        }
+        ++result.total;
+        if (found.cpMin == sel.cpMin && found.cpMax == sel.cpMax) result.current = result.total;
+        pos = std::max(found.cpMax, found.cpMin + 1);
+    }
+    return result;
+}
+
+std::wstring GetSingleLineSelection(HWND editor, size_t maxLength)
+{
+    CHARRANGE sel;
+    SendMessageW(editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
+    if (sel.cpMax <= sel.cpMin || static_cast<size_t>(sel.cpMax - sel.cpMin) > maxLength) return {};
+    std::wstring text = SelectedText(editor);
+    if (text.find_first_of(L"\r\n\v") != std::wstring::npos) return {};
+    return text;
 }
 
 void MarkEditorClean(HWND editor)

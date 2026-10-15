@@ -7,8 +7,8 @@ enum class FileFormat { Rtf, Text };
 // 경로의 확장자로 저장 형식을 정한다 (.txt면 Text, 그 외는 Rtf)
 FileFormat FormatFromPath(const std::wstring& path);
 
-// 파일 열기 대화상자. 취소하면 false.
-bool ShowOpenDialog(HWND owner, std::wstring& path);
+// 파일 열기 대화상자. startFolder가 있으면 그 폴더에서 시작한다. 취소하면 false.
+bool ShowOpenDialog(HWND owner, const std::wstring& startFolder, std::wstring& path);
 
 // 다른 이름으로 저장 대화상자. currentPath가 있으면 그 위치/이름에서 시작한다. 취소하면 false.
 bool ShowSaveDialog(HWND owner, const std::wstring& currentPath, FileFormat currentFormat, std::wstring& path);

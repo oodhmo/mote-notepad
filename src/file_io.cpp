@@ -214,7 +214,7 @@ FileFormat FormatFromPath(const std::wstring& path)
     return Extension(path) == L".txt" ? FileFormat::Text : FileFormat::Rtf;
 }
 
-bool ShowOpenDialog(HWND owner, std::wstring& path)
+bool ShowOpenDialog(HWND owner, const std::wstring& startFolder, std::wstring& path)
 {
     IFileOpenDialog* dialog = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
@@ -229,6 +229,13 @@ bool ShowOpenDialog(HWND owner, std::wstring& path)
     dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
     dialog->SetFileTypes(ARRAYSIZE(filters), filters);
+    if (!startFolder.empty()) {
+        IShellItem* folder = nullptr;
+        if (SUCCEEDED(SHCreateItemFromParsingName(startFolder.c_str(), nullptr, IID_PPV_ARGS(&folder)))) {
+            dialog->SetFolder(folder);
+            folder->Release();
+        }
+    }
 
     const bool ok = SUCCEEDED(dialog->Show(owner)) && GetDialogResultPath(dialog, path);
     dialog->Release();

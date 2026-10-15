@@ -18,6 +18,9 @@ add_executable(mote WIN32
     src/file_io.cpp
     src/topbar.cpp
     src/theme.cpp
+    src/findbar.cpp
+    src/settings.cpp
+    src/confirm.cpp
     resources/app.rc
     resources/app.manifest
 )
@@ -42,5 +45,5 @@ set_property(TARGET mote PROPERTY
 
 # 모두 Windows에 기본 포함된 시스템 DLL이다
 target_link_libraries(mote PRIVATE
-    comctl32 comdlg32 uxtheme dwmapi gdiplus ole32 shell32
+    comctl32 comdlg32 uxtheme dwmapi gdiplus ole32 shell32 shlwapi
 )
