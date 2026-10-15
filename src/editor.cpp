@@ -1,0 +1,387 @@
+#include "editor.h"
+#include "theme.h"
+
+#include <commctrl.h>
+#include <windowsx.h>
+#include <richedit.h>
+#include <richole.h>
+#include <tom.h>
+
+// 최신 SDK에만 있는 RichEdit 언어 옵션 비트
+#ifndef IMF_SPELLCHECKING
+#define IMF_SPELLCHECKING 0x0800
+#endif
+#ifndef IMF_TKBPREDICTION
+#define IMF_TKBPREDICTION 0x1000
+#endif
+#ifndef IMF_TKBAUTOCORRECTION
+#define IMF_TKBAUTOCORRECTION 0x2000
+#endif
+
+namespace {
+
+constexpr LONG kFontSizeTwips = 230;     // 11.5pt
+constexpr float kLineSpacing = 1.2f;     // 기본 RichEdit보다 약간 여유로운 줄간격
+constexpr int kPaddingX = 32;            // 본문 좌우 여백 (96 DPI 기준)
+constexpr int kPaddingTop = 22;          // 본문 위 여백
+
+// SDK 버전에 따라 IID 정의가 라이브러리에 없을 수 있어 직접 정의한다
+constexpr GUID kIID_IRichEditOleCallback = {0x00020D03, 0, 0, {0xC0, 0, 0, 0, 0, 0, 0, 0x46}};
+constexpr GUID kIID_ITextDocument = {0x8CC497C0, 0xA1DF, 0x11CE, {0x80, 0x98, 0x00, 0xAA, 0x00, 0x47, 0xBE, 0x5D}};
+
+UINT g_dpi = 96;
+HMENU g_contextMenu = nullptr;
+ITextDocument* g_textDoc = nullptr;  // 문서 단위 작업(색 교체, 줄간격)에 사용하는 TOM 인터페이스
+bool g_internalDrag = false;          // 이 에디터 안에서 시작된 드래그인지
+
+// 클립보드 내용이 이 프로세스(=mote)에서 복사된 것인지 확인한다.
+// RichEdit는 OLE 클립보드를 쓰므로 소유 창은 같은 프로세스의 OLE 숨김 창이다.
+bool IsClipboardFromThisProcess()
+{
+    HWND owner = GetClipboardOwner();
+    if (!owner) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(owner, &pid);
+    return pid == GetCurrentProcessId();
+}
+
+bool DataObjectHas(IDataObject* data, CLIPFORMAT format)
+{
+    FORMATETC fe = {format, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    return data && data->QueryGetData(&fe) == S_OK;
+}
+
+// 붙여넣기/드롭/개체 삽입 정책을 결정하는 RichEdit 콜백.
+// - 이미지·OLE 개체 삽입 차단
+// - 외부에서 온 데이터는 일반 텍스트로만 받아 웹 글꼴/크기 등이 섞이지 않게 한다
+// - mote 안에서 복사/드래그한 내용은 RTF로 받아 글자색을 유지한다
+class OleCallback final : public IRichEditOleCallback {
+public:
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == kIID_IRichEditOleCallback) {
+            *ppv = static_cast<IRichEditOleCallback*>(this);
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    // 정적 객체이므로 참조 계수를 관리하지 않는다
+    STDMETHODIMP_(ULONG) AddRef() override { return 1; }
+    STDMETHODIMP_(ULONG) Release() override { return 1; }
+
+    // 저장소를 주지 않으면 OLE 개체(이미지 등)를 넣을 수 없다
+    STDMETHODIMP GetNewStorage(LPSTORAGE*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetInPlaceContext(LPOLEINPLACEFRAME*, LPOLEINPLACEUIWINDOW*, LPOLEINPLACEFRAMEINFO) override { return E_NOTIMPL; }
+    STDMETHODIMP ShowContainerUI(BOOL) override { return E_NOTIMPL; }
+    STDMETHODIMP QueryInsertObject(LPCLSID, LPSTORAGE, LONG) override { return S_FALSE; }
+    STDMETHODIMP DeleteObject(LPOLEOBJECT) override { return S_OK; }
+    STDMETHODIMP ContextSensitiveHelp(BOOL) override { return E_NOTIMPL; }
+    STDMETHODIMP GetContextMenu(WORD, LPOLEOBJECT, CHARRANGE*, HMENU*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetDragDropEffect(BOOL, DWORD, LPDWORD) override { return S_OK; }
+
+    STDMETHODIMP GetClipboardData(CHARRANGE*, DWORD reco, LPDATAOBJECT*) override
+    {
+        // 드래그를 시작할 때도 호출되므로 "내부 드래그" 여부를 기록해 둔다
+        if (reco == RECO_DRAG) g_internalDrag = true;
+        return E_NOTIMPL;  // 데이터 개체는 RichEdit 기본 구현을 사용
+    }
+
+    STDMETHODIMP QueryAcceptData(LPDATAOBJECT data, CLIPFORMAT* format, DWORD reco, BOOL really, HGLOBAL) override
+    {
+        if (*format != 0) return S_OK;  // 특정 형식을 명시한 붙여넣기는 그대로 둔다
+
+        static const CLIPFORMAT rtfFormat = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CF_RTF));
+        const bool internal = (reco == RECO_DROP) ? g_internalDrag : IsClipboardFromThisProcess();
+        if (reco == RECO_DROP && really) g_internalDrag = false;
+
+        if (internal && DataObjectHas(data, rtfFormat)) {
+            *format = rtfFormat;
+            return S_OK;
+        }
+        if (DataObjectHas(data, CF_UNICODETEXT)) {
+            *format = CF_UNICODETEXT;
+            return S_OK;
+        }
+        return E_FAIL;  // 텍스트가 없는 데이터(이미지 등)는 받지 않는다
+    }
+};
+
+OleCallback g_oleCallback;
+
+// 워드프로세서용 RichEdit 기본 단축키를 막는다.
+// (Ctrl+L/E/R/J 정렬, Ctrl+1/2/5 줄간격, Ctrl+= 아래첨자, Ctrl+Shift+A 대문자, Ctrl+Shift+L 목록 등)
+// 메모장에 필요한 편집/이동 단축키만 허용 목록으로 통과시킨다.
+bool IsBlockedShortcut(WPARAM vk)
+{
+    if (GetKeyState(VK_CONTROL) >= 0) return false;
+    if (GetKeyState(VK_MENU) < 0) return false;  // AltGr(=Ctrl+Alt)로 입력하는 문자는 막지 않는다
+    const bool shift = GetKeyState(VK_SHIFT) < 0;
+    switch (vk) {
+    case 'C': case 'X': case 'Z': case 'Y':
+        return false;
+    case 'V': case 'A':
+        return shift;
+    case VK_LEFT: case VK_RIGHT: case VK_UP: case VK_DOWN:
+    case VK_HOME: case VK_END: case VK_PRIOR: case VK_NEXT:
+    case VK_BACK: case VK_DELETE: case VK_INSERT:
+    case VK_CONTROL: case VK_SHIFT: case VK_MENU: case VK_PROCESSKEY:
+        return false;
+    default:
+        return true;
+    }
+}
+
+void ApplyPadding(HWND editor)
+{
+    RECT rc;
+    GetClientRect(editor, &rc);
+    rc.left += Scale(kPaddingX, g_dpi);
+    rc.right -= Scale(kPaddingX, g_dpi);
+    rc.top += Scale(kPaddingTop, g_dpi);
+    if (rc.right <= rc.left) rc.right = rc.left + 1;
+    if (rc.bottom <= rc.top) rc.bottom = rc.top + 1;
+    SendMessageW(editor, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&rc));
+}
+
+void ShowContextMenu(HWND editor, POINT screenPt)
+{
+    if (!g_contextMenu) return;
+    // 명령은 부모(메인 창)로 보내 메뉴와 같은 경로로 처리한다
+    TrackPopupMenuEx(g_contextMenu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
+                     screenPt.x, screenPt.y, GetParent(editor), nullptr);
+}
+
+LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR)
+{
+    switch (msg) {
+    case WM_KEYDOWN:
+        if (IsBlockedShortcut(wp)) {
+            // TranslateMessage가 이미 넣어 둔 제어 문자(WM_CHAR)도 함께 버려야
+            // 문서에 이상한 제어 문자가 들어가지 않는다
+            MSG pending;
+            PeekMessageW(&pending, hwnd, WM_CHAR, WM_CHAR, PM_REMOVE);
+            return 0;
+        }
+        break;
+
+    case WM_LBUTTONDOWN:
+        g_internalDrag = false;  // 새 마우스 동작이 시작되면 이전 드래그 기록은 무효
+        break;
+
+    case WM_RBUTTONDOWN: {
+        // 선택 영역 밖을 우클릭하면 메모장처럼 캐럿을 그 위치로 옮긴다
+        POINTL pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        const LONG cp = static_cast<LONG>(SendMessageW(hwnd, EM_CHARFROMPOS, 0, reinterpret_cast<LPARAM>(&pt)));
+        CHARRANGE sel;
+        SendMessageW(hwnd, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
+        if (cp < sel.cpMin || cp > sel.cpMax) {
+            CHARRANGE caret = {cp, cp};
+            SendMessageW(hwnd, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&caret));
+        }
+        SetFocus(hwnd);
+        return 0;
+    }
+
+    case WM_RBUTTONUP: {
+        // RichEdit는 기본 컨텍스트 메뉴가 없으므로 직접 띄운다
+        POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        ClientToScreen(hwnd, &pt);
+        ShowContextMenu(hwnd, pt);
+        return 0;
+    }
+
+    case WM_CONTEXTMENU: {
+        // 메뉴 키 / Shift+F10: 좌표가 (-1,-1)이면 캐럿 위치에 띄운다
+        POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        if (pt.x == -1 && pt.y == -1) {
+            CHARRANGE sel;
+            SendMessageW(hwnd, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
+            POINTL pos = {};
+            SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&pos), sel.cpMax);
+            pt = {pos.x, pos.y + Scale(20, g_dpi)};
+            ClientToScreen(hwnd, &pt);
+        }
+        ShowContextMenu(hwnd, pt);
+        return 0;
+    }
+
+    case WM_SIZE: {
+        // RichEdit는 크기가 바뀌면 서식 영역을 초기화하므로 여백을 다시 적용한다.
+        // 세로 스크롤바가 나타나거나 사라질 때도 WM_SIZE가 온다.
+        const LRESULT result = DefSubclassProc(hwnd, msg, wp, lp);
+        ApplyPadding(hwnd);
+        return result;
+    }
+
+    case WM_NCDESTROY:
+        RemoveWindowSubclass(hwnd, EditorSubclassProc, 0);
+        if (g_textDoc) {
+            g_textDoc->Release();
+            g_textDoc = nullptr;
+        }
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wp, lp);
+}
+
+CHARFORMAT2W DefaultCharFormat()
+{
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_FACE | CFM_SIZE | CFM_COLOR | CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE;
+    cf.dwEffects = 0;  // CFE_AUTOCOLOR를 쓰지 않는다: 자동 색은 시스템 검정으로 고정되기 때문
+    cf.yHeight = kFontSizeTwips;
+    cf.crTextColor = DefaultTextColor();
+    wcsncpy_s(cf.szFaceName, UiFontFace(), _TRUNCATE);
+    return cf;
+}
+
+// 문서 전체를 가리키는 TOM 범위 (호출자가 Release)
+ITextRange* WholeStoryRange()
+{
+    ITextRange* range = nullptr;
+    if (!g_textDoc || FAILED(g_textDoc->Range(0, 0, &range)) || !range) return nullptr;
+    range->Expand(tomStory, nullptr);
+    return range;
+}
+
+void ApplyLineSpacing()
+{
+    ITextRange* range = WholeStoryRange();
+    if (!range) return;
+    ITextPara* para = nullptr;
+    if (SUCCEEDED(range->GetPara(&para)) && para) {
+        para->SetLineSpacing(tomLineSpaceMultiple, kLineSpacing);
+        para->SetSpaceBefore(0);
+        para->SetSpaceAfter(0);
+        para->Release();
+    }
+    range->Release();
+}
+
+}  // namespace
+
+COLORREF DefaultTextColor()
+{
+    return CurrentTheme().text;
+}
+
+HWND CreateEditor(HWND parent, HINSTANCE instance, HMENU contextMenu)
+{
+    g_contextMenu = contextMenu;
+    g_dpi = GetDpiForWindow(parent);
+
+    // WS_EX_CLIENTEDGE를 주지 않아 3D 테두리가 없는 편집 영역을 만든다
+    HWND editor = CreateWindowExW(
+        0, MSFTEDIT_CLASS, L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPSIBLINGS |
+            ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL,
+        0, 0, 0, 0, parent, nullptr, instance, nullptr);
+    if (!editor) return nullptr;
+
+    // 텍스트 모드는 문서가 비어 있을 때만 바꿀 수 있으므로 가장 먼저 설정한다
+    SendMessageW(editor, EM_SETTEXTMODE, TM_RICHTEXT | TM_MULTILEVELUNDO | TM_MULTICODEPAGE, 0);
+    SendMessageW(editor, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+    SendMessageW(editor, EM_SETOLECALLBACK, 0, reinterpret_cast<LPARAM>(&g_oleCallback));
+
+    // 맞춤법 검사(빨간 밑줄)와 터치 키보드 자동 교정/추천을 명시적으로 끈다.
+    // 한글 입력을 위해 IME 관련 옵션(IMF_DUALFONT 등)은 유지한다.
+    LRESULT lang = SendMessageW(editor, EM_GETLANGOPTIONS, 0, 0);
+    lang &= ~static_cast<LRESULT>(IMF_SPELLCHECKING | IMF_TKBPREDICTION | IMF_TKBAUTOCORRECTION);
+    lang |= IMF_DUALFONT;
+    SendMessageW(editor, EM_SETLANGOPTIONS, 0, lang);
+    SendMessageW(editor, EM_AUTOURLDETECT, 0, 0);
+
+    SendMessageW(editor, EM_SETBKGNDCOLOR, 0, CurrentTheme().windowBg);
+    SendMessageW(editor, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+
+    // 문서 단위 작업에 쓸 TOM 인터페이스를 얻어 둔다
+    IRichEditOle* ole = nullptr;
+    if (SendMessageW(editor, EM_GETOLEINTERFACE, 0, reinterpret_cast<LPARAM>(&ole)) && ole) {
+        ole->QueryInterface(kIID_ITextDocument, reinterpret_cast<void**>(&g_textDoc));
+        ole->Release();
+    }
+
+    SetWindowSubclass(editor, EditorSubclassProc, 0, 0);
+    ResetEditorDocument(editor);
+    return editor;
+}
+
+void SetEditorDpi(HWND editor, UINT dpi)
+{
+    g_dpi = dpi;
+    ApplyPadding(editor);
+}
+
+void ResetEditorDocument(HWND editor)
+{
+    SetWindowTextW(editor, L"");
+    CHARFORMAT2W cf = DefaultCharFormat();
+    SendMessageW(editor, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
+    SendMessageW(editor, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
+    ApplyLineSpacing();
+    MarkEditorClean(editor);
+}
+
+void ApplyPlainTextFormatting(HWND editor)
+{
+    CHARFORMAT2W cf = DefaultCharFormat();
+    SendMessageW(editor, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
+    SendMessageW(editor, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
+    ApplyLineSpacing();
+}
+
+void NormalizeLoadedRichText(HWND editor)
+{
+    // 주의: 여기서 SCF_DEFAULT를 바꾸면 기본 서식을 공유하는 구간의 서식까지 바뀌므로 건드리지 않는다.
+    // 파일의 "자동 색"은 현재 테마 기본색으로 보여 준다 (다크 모드에서도 읽히도록)
+    ReplaceTextColor(editor, kAutoColor, static_cast<long>(DefaultTextColor()));
+    ApplyLineSpacing();
+}
+
+void ReplaceTextColor(HWND editor, long from, long to)
+{
+    if (!g_textDoc || from == to) return;
+
+    const LPARAM wasModified = SendMessageW(editor, EM_GETMODIFY, 0, 0);
+    long freezeCount = 0;
+    g_textDoc->Freeze(&freezeCount);          // 중간 상태가 화면에 그려지지 않게 한다
+    g_textDoc->Undo(tomSuspend, nullptr);     // 색 교체가 실행 취소 기록에 남지 않게 한다
+
+    ITextRange* range = nullptr;
+    if (SUCCEEDED(g_textDoc->Range(0, 0, &range)) && range) {
+        long storyLength = 0;
+        range->GetStoryLength(&storyLength);
+        long pos = 0;
+        // 같은 서식이 이어지는 구간(run) 단위로 훑으며 색이 일치하는 구간만 바꾼다
+        while (pos < storyLength) {
+            range->SetRange(pos, pos);
+            long moved = 0;
+            if (FAILED(range->MoveEnd(tomCharFormat, 1, &moved)) || moved == 0) break;
+            long end = pos;
+            range->GetEnd(&end);
+            if (end <= pos) break;
+
+            ITextFont* font = nullptr;
+            if (SUCCEEDED(range->GetFont(&font)) && font) {
+                long color = 0;
+                if (SUCCEEDED(font->GetForeColor(&color)) && color == from) font->SetForeColor(to);
+                font->Release();
+            }
+            pos = end;
+        }
+        range->Release();
+    }
+
+    g_textDoc->Undo(tomResume, nullptr);
+    g_textDoc->Unfreeze(&freezeCount);
+    SendMessageW(editor, EM_SETMODIFY, wasModified, 0);
+}
+
+void MarkEditorClean(HWND editor)
+{
+    SendMessageW(editor, EM_EMPTYUNDOBUFFER, 0, 0);
+    SendMessageW(editor, EM_SETMODIFY, FALSE, 0);
+}

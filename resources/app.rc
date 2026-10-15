@@ -1,0 +1,67 @@
+#pragma code_page(65001)
+#include <windows.h>
+#include "resource.h"
+
+// 네이티브 메뉴바로 붙이지 않고, 상단 바 버튼에서 팝업으로만 사용한다
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "File"
+    BEGIN
+        MENUITEM "&New\tCtrl+N",            IDM_FILE_NEW
+        MENUITEM "&Open...\tCtrl+O",        IDM_FILE_OPEN
+        MENUITEM "&Save\tCtrl+S",           IDM_FILE_SAVE
+        MENUITEM "Save &As...\tCtrl+Shift+S", IDM_FILE_SAVEAS
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",                   IDM_FILE_EXIT
+    END
+    POPUP "Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z",           IDM_EDIT_UNDO
+        MENUITEM "&Redo\tCtrl+Y",           IDM_EDIT_REDO
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X",            IDM_EDIT_CUT
+        MENUITEM "&Copy\tCtrl+C",           IDM_EDIT_COPY
+        MENUITEM "&Paste\tCtrl+V",          IDM_EDIT_PASTE
+        MENUITEM SEPARATOR
+        MENUITEM "Select &All\tCtrl+A",     IDM_EDIT_SELECTALL
+    END
+END
+
+// 편집 단축키(Ctrl+C/V/X/Z/Y/A)는 RichEdit 기본 처리에 맡긴다.
+// 가속키로 가로채면 찾기 대화상자 입력란 등 다른 컨트롤에서 동작하지 않기 때문이다.
+IDR_ACCEL ACCELERATORS
+BEGIN
+    "N",    IDM_FILE_NEW,       VIRTKEY, CONTROL
+    "O",    IDM_FILE_OPEN,      VIRTKEY, CONTROL
+    "S",    IDM_FILE_SAVE,      VIRTKEY, CONTROL
+    "S",    IDM_FILE_SAVEAS,    VIRTKEY, CONTROL, SHIFT
+    "F",    IDM_OPEN_FILE_MENU, VIRTKEY, ALT
+    "E",    IDM_OPEN_EDIT_MENU, VIRTKEY, ALT
+END
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     0,1,0,0
+PRODUCTVERSION  0,1,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041204b0"
+        BEGIN
+            VALUE "FileDescription",  "mote"
+            VALUE "FileVersion",      "0.1.0"
+            VALUE "InternalName",     "mote"
+            VALUE "OriginalFilename", "mote.exe"
+            VALUE "ProductName",      "mote"
+            VALUE "ProductVersion",   "0.1.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x412, 1200
+    END
+END
