@@ -144,6 +144,33 @@ void LayoutChildren()
     PositionExpandButton();
 }
 
+// ---- 창 위치/크기 기억 ----
+
+// 다음 실행 때 같은 위치/크기로 열리도록 저장한다 (여러 창이면 마지막으로 닫은 창 기준)
+void SaveWindowState()
+{
+    WINDOWPLACEMENT placement = {sizeof(placement)};
+    if (GetWindowPlacement(g_app.window, &placement)) SaveWindowPlacement(placement);
+}
+
+// 저장된 위치/크기를 숨긴 창에 적용하고, 처음 보여 줄 때 쓸 ShowWindow 값을 돌려준다
+int RestoreWindowState(HWND window, int showCommand)
+{
+    WINDOWPLACEMENT placement;
+    if (!LoadWindowPlacement(placement)) return showCommand;
+    const bool wasMaximized = placement.showCmd == SW_SHOWMAXIMIZED;
+    placement.showCmd = SW_HIDE;
+    placement.flags = 0;
+    // 저장된 위치가 배율이 다른 모니터면 첫 번째 호출에서 WM_DPICHANGED가 와서 크기가 권장값으로 바뀐다.
+    // 이미 그 모니터로 옮겨진 뒤 한 번 더 적용해 저장된 크기 그대로 맞춘다.
+    // (모니터가 빠져 화면 밖이면 시스템이 보이는 위치로 옮겨 준다)
+    SetWindowPlacement(window, &placement);
+    SetWindowPlacement(window, &placement);
+    // 바로 가기의 "최소화/최대화 상태로 실행" 설정은 그대로 따르고, 기본 실행일 때만 최대화를 되살린다
+    const bool defaultShow = showCommand == SW_SHOWNORMAL || showCommand == SW_SHOWDEFAULT;
+    return (defaultShow && wasMaximized) ? SW_SHOWMAXIMIZED : showCommand;
+}
+
 // ---- 상단 바 접기 ----
 
 // 잠깐 보이는 바 / 펼치기 화살표를 모두 숨기고 타이머를 멈춘다
@@ -627,6 +654,11 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         // 로그오프/종료 시에도 저장 여부를 묻는다. 취소하면 종료를 막는다.
         return ConfirmDiscardChanges() ? TRUE : FALSE;
 
+    case WM_ENDSESSION:
+        // 로그오프/종료 때는 WM_DESTROY 없이 프로세스가 끝나므로 여기서 창 상태를 저장한다
+        if (wp) SaveWindowState();
+        return 0;
+
     case WM_MOTE_RELAYOUT:
         LayoutChildren();
         return 0;
@@ -681,6 +713,7 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 1;  // 자식 창이 클라이언트 영역 전체를 덮는다
 
     case WM_DESTROY:
+        SaveWindowState();
         if (g_app.menus) DestroyMenu(g_app.menus);
         PostQuitMessage(0);
         return 0;
@@ -733,7 +766,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     }
     g_app.accelerators = LoadAcceleratorsW(instance, MAKEINTRESOURCEW(IDR_ACCEL));
 
-    ShowWindow(window, showCommand);
+    ShowWindow(window, RestoreWindowState(window, showCommand));
     UpdateWindow(window);
 
     // 탐색기에서 파일을 끌어다 놓거나 "연결 프로그램"으로 연 경우

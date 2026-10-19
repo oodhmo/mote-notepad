@@ -1,4 +1,5 @@
 #pragma once
+#include <windows.h>
 #include <string>
 #include <vector>
 
@@ -6,6 +7,10 @@
 
 bool LoadToolbarCollapsed();
 void SaveToolbarCollapsed(bool collapsed);
+
+// 마지막으로 닫은 창의 위치/크기/최대화 상태. 저장된 값이 없거나 올바르지 않으면 false.
+bool LoadWindowPlacement(WINDOWPLACEMENT& placement);
+void SaveWindowPlacement(const WINDOWPLACEMENT& placement);
 
 // 최근 파일 목록 (최신 순, 최대 kMaxRecentFiles개)
 constexpr size_t kMaxRecentFiles = 8;

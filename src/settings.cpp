@@ -8,6 +8,7 @@ namespace {
 constexpr wchar_t kSettingsKey[] = L"Software\\mote";
 constexpr wchar_t kToolbarCollapsedValue[] = L"ToolbarCollapsed";
 constexpr wchar_t kRecentFilesValue[] = L"RecentFiles";
+constexpr wchar_t kWindowPlacementValue[] = L"WindowPlacement";
 
 bool SamePath(const std::wstring& a, const std::wstring& b)
 {
@@ -40,6 +41,26 @@ void SaveToolbarCollapsed(bool collapsed)
 {
     const DWORD value = collapsed ? 1 : 0;
     RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kToolbarCollapsedValue, REG_DWORD, &value, sizeof(value));
+}
+
+bool LoadWindowPlacement(WINDOWPLACEMENT& placement)
+{
+    WINDOWPLACEMENT value = {};
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kWindowPlacementValue, RRF_RT_REG_BINARY,
+                     nullptr, &value, &size) != ERROR_SUCCESS) {
+        return false;
+    }
+    if (size != sizeof(value) || value.length != sizeof(value)) return false;
+    const RECT& rc = value.rcNormalPosition;
+    if (rc.right <= rc.left || rc.bottom <= rc.top) return false;
+    placement = value;
+    return true;
+}
+
+void SaveWindowPlacement(const WINDOWPLACEMENT& placement)
+{
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kWindowPlacementValue, REG_BINARY, &placement, sizeof(placement));
 }
 
 std::vector<std::wstring> LoadRecentFiles()
