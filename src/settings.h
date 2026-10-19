@@ -9,6 +9,10 @@
 bool LoadToolbarCollapsed();
 void SaveToolbarCollapsed(bool collapsed);
 
+// 처음 실행할 때 연결 프로그램 등록을 이미 물어봤는지 (답과 관계없이 한 번만 묻는다)
+bool LoadOpenWithAsked();
+void SaveOpenWithAsked();
+
 // 마지막으로 닫은 창의 위치/크기/최대화 상태. 저장된 값이 없거나 올바르지 않으면 false.
 bool LoadWindowPlacement(WINDOWPLACEMENT& placement);
 void SaveWindowPlacement(const WINDOWPLACEMENT& placement);

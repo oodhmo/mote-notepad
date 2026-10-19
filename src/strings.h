@@ -104,6 +104,9 @@ enum class StrId {
     ErrorRegister,
     OpenWithTextType,
     OpenWithRichType,
+    FirstRunRegisterTitle,
+    FirstRunRegisterMessage,
+    LaterButton,
     Count
 };
 

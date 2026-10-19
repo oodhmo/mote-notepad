@@ -10,6 +10,7 @@ constexpr wchar_t kToolbarCollapsedValue[] = L"ToolbarCollapsed";
 constexpr wchar_t kRecentFilesValue[] = L"RecentFiles";
 constexpr wchar_t kWindowPlacementValue[] = L"WindowPlacement";
 constexpr wchar_t kColorShortcutsValue[] = L"ColorShortcuts";
+constexpr wchar_t kOpenWithAskedValue[] = L"OpenWithAsked";
 
 bool SamePath(const std::wstring& a, const std::wstring& b)
 {
@@ -42,6 +43,19 @@ void SaveToolbarCollapsed(bool collapsed)
 {
     const DWORD value = collapsed ? 1 : 0;
     RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kToolbarCollapsedValue, REG_DWORD, &value, sizeof(value));
+}
+
+bool LoadOpenWithAsked()
+{
+    DWORD value = 0, size = sizeof(value);
+    return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kOpenWithAskedValue, RRF_RT_REG_DWORD,
+                        nullptr, &value, &size) == ERROR_SUCCESS && value != 0;
+}
+
+void SaveOpenWithAsked()
+{
+    const DWORD value = 1;
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kOpenWithAskedValue, REG_DWORD, &value, sizeof(value));
 }
 
 bool LoadWindowPlacement(WINDOWPLACEMENT& placement)

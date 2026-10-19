@@ -8,6 +8,8 @@ constexpr long kAutoColor = -9999997;
 // 파일을 본문에 끌어다 놓으면 부모 창에 보낸다.
 // lParam: new로 만든 std::wstring* (파일 경로). 받는 쪽에서 delete한다.
 constexpr UINT WM_MOTE_OPENFILE = WM_APP + 3;
+// 처음 실행할 때 창이 그려진 뒤 연결 프로그램 등록을 묻는다
+constexpr UINT WM_MOTE_ASKOPENWITH = WM_APP + 4;
 
 // RichEdit 컨트롤을 만들고 기본 설정을 적용한다.
 // contextMenu: 우클릭 시 보여줄 팝업 메뉴 (명령은 parent로 전달된다)

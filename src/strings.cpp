@@ -116,6 +116,10 @@ constexpr Entry kStrings[] = {
     {L"Can't add mote to \"Open with\".", L"연결 프로그램에 등록하지 못했습니다."},
     {L"mote Text Document", L"mote 텍스트 문서"},
     {L"mote Rich Text Document", L"mote 서식 있는 문서"},
+    {L"Add mote to \"Open with\"", L"연결 프로그램에 mote 등록"},
+    {L"Show mote in the \"Open with\" list when you right-click .txt and .rtf files? You can add or remove it later from the Help menu.",
+     L".txt, .rtf 파일을 우클릭했을 때 '연결 프로그램' 목록에 mote가 나타나게 할까요? 나중에 도움말 메뉴에서 등록하거나 제거할 수 있습니다."},
+    {L"Later", L"나중에"},
 };
 static_assert(ARRAYSIZE(kStrings) == static_cast<size_t>(StrId::Count), "kStrings와 StrId의 개수가 다르다");
 

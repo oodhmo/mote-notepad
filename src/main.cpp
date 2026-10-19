@@ -537,16 +537,9 @@ void UpdateMenuState(HMENU menu)
     }
 }
 
-// 도움말 > 연결 프로그램 등록/제거
-void ToggleOpenWithRegistration()
+// 등록하고, 기본 앱 설정에서 mote를 고를 수 있게 안내한다
+void RegisterAndGuide()
 {
-    if (IsOpenWithRegistered()) {
-        if (AskConfirm(g_app.window, Str(StrId::UnregisterTitle), Str(StrId::UnregisterMessage), Str(StrId::UnregisterButton))) {
-            UnregisterOpenWith();
-        }
-        return;
-    }
-    if (!AskConfirm(g_app.window, Str(StrId::RegisterTitle), Str(StrId::RegisterMessage), Str(StrId::RegisterButton))) return;
     if (!RegisterOpenWith()) {
         ShowError(Str(StrId::ErrorRegister), Str(StrId::ErrorUnknown));
         return;
@@ -557,6 +550,30 @@ void ToggleOpenWithRegistration()
         const auto opened = reinterpret_cast<INT_PTR>(ShellExecuteW(g_app.window, L"open", L"ms-settings:defaultapps?registeredAppUser=mote",
                                                                     nullptr, nullptr, SW_SHOWNORMAL));
         if (opened <= 32) ShellExecuteW(g_app.window, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
+
+// 도움말 > 연결 프로그램 등록/제거
+void ToggleOpenWithRegistration()
+{
+    if (IsOpenWithRegistered()) {
+        if (AskConfirm(g_app.window, Str(StrId::UnregisterTitle), Str(StrId::UnregisterMessage), Str(StrId::UnregisterButton))) {
+            UnregisterOpenWith();
+        }
+        return;
+    }
+    if (!AskConfirm(g_app.window, Str(StrId::RegisterTitle), Str(StrId::RegisterMessage), Str(StrId::RegisterButton))) return;
+    RegisterAndGuide();
+}
+
+// 처음 실행할 때 한 번만 등록할지 묻는다 (이미 등록했으면 묻지 않는다)
+void MaybeAskOpenWith()
+{
+    if (LoadOpenWithAsked() || IsOpenWithRegistered()) return;
+    SaveOpenWithAsked();
+    if (AskConfirm(g_app.window, Str(StrId::FirstRunRegisterTitle), Str(StrId::FirstRunRegisterMessage),
+                   Str(StrId::RegisterButton), Str(StrId::LaterButton))) {
+        RegisterAndGuide();
     }
 }
 
@@ -743,6 +760,10 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
 
+    case WM_MOTE_ASKOPENWITH:
+        MaybeAskOpenWith();
+        return 0;
+
     case WM_DROPFILES: {
         // 본문 밖(상단 바, 찾기 바)에 놓았을 때. 여러 파일이면 첫 번째만 연다.
         const auto drop = reinterpret_cast<HDROP>(wp);
@@ -866,6 +887,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         if (argc > 1) OpenDocument(argv[1]);
         LocalFree(argv);
     }
+    PostMessageW(window, WM_MOTE_ASKOPENWITH, 0, 0);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
