@@ -31,6 +31,10 @@ void MarkEditorClean(HWND editor);
 // 현재 테마의 기본 글자색
 COLORREF DefaultTextColor();
 
+// 테마가 바뀐 뒤 호출: 배경색과 스크롤바를 바꾸고, 이전 기본 글자색(previousText)으로 칠해진 글자를
+// 새 기본 글자색으로 바꾼다. 사용자가 직접 지정한 다른 색은 그대로 둔다.
+void ApplyEditorTheme(HWND editor, COLORREF previousText);
+
 // 선택 영역(선택이 없으면 캐럿 위치의 입력 서식) 상태. 상단 바 표시용.
 struct FormatState {
     bool bold = false;

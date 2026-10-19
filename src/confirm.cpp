@@ -25,13 +25,12 @@ constexpr int kButtonPadX = 16;
 constexpr int kMinButtonWidth = 72;
 constexpr int kButtonGap = 8;
 constexpr int kCornerRadius = 6;
-constexpr int kTitleFontTenths = 115;  // 본문과 같은 크기, 굵게
-constexpr int kBodyFontTenths = 100;
+// 글자 크기 (96 DPI 기준 px)
+// 이 창의 글자는 모두 한국어라 맑은 고딕 하나로 그린다 (HangulUiFontFace 참고)
+constexpr int kTitleFontPx = 15;   // 제목, 굵게
+constexpr int kBodyFontPx = 13;    // 파일 이름
+constexpr int kButtonFontPx = 13;  // 버튼 (파일 이름과 같은 크기)
 
-// 기본 버튼(저장)은 본문 글자색으로 채우고 흰 글자를 쓴다. hover/눌림은 아주 조금만 밝게/어둡게.
-constexpr COLORREF kPrimaryHover = RGB(0x4A, 0x48, 0x42);
-constexpr COLORREF kPrimaryPressed = RGB(0x2A, 0x28, 0x24);
-constexpr COLORREF kPrimaryText = RGB(0xFF, 0xFF, 0xFF);
 
 // 화면 왼쪽부터의 순서
 enum { kCancelButton, kDontSaveButton, kSaveButton, kButtonCount };
@@ -41,6 +40,7 @@ struct ConfirmState {
     UINT dpi = 96;
     HFONT titleFont = nullptr;
     HFONT bodyFont = nullptr;
+    HFONT buttonFont = nullptr;
     std::wstring documentName;
     const wchar_t* labels[kButtonCount] = {L"취소", L"저장 안 함", L"저장"};
     RECT buttons[kButtonCount] = {};
@@ -93,7 +93,7 @@ SIZE Layout()
     const int titleHeight = TextHeight(dc, g_confirm.titleFont);
     const int bodyHeight = TextHeight(dc, g_confirm.bodyFont);
     int buttonWidths[kButtonCount] = {};
-    HGDIOBJ old = SelectObject(dc, g_confirm.bodyFont);
+    HGDIOBJ old = SelectObject(dc, g_confirm.buttonFont);
     for (int i = 0; i < kButtonCount; ++i) {
         SIZE size = {};
         GetTextExtentPoint32W(dc, g_confirm.labels[i], static_cast<int>(wcslen(g_confirm.labels[i])), &size);
@@ -157,7 +157,7 @@ void Paint(HWND hwnd)
             }
 
             if (i == kSaveButton) {
-                FillRoundRect(graphics, rect, pressed ? kPrimaryPressed : hot ? kPrimaryHover : theme.text, radius);
+                FillRoundRect(graphics, rect, pressed ? theme.primaryPressed : hot ? theme.primaryHover : theme.primaryBg, radius);
             } else if (pressed) {
                 FillRoundRect(graphics, rect, theme.pressed, radius);
             } else if (hot) {
@@ -177,8 +177,9 @@ void Paint(HWND hwnd)
     DrawTextW(paint.dc, g_confirm.documentName.c_str(), -1, &g_confirm.bodyRect,
               DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_PATH_ELLIPSIS);
 
+    SelectObject(paint.dc, g_confirm.buttonFont);
     for (int i = 0; i < kButtonCount; ++i) {
-        SetTextColor(paint.dc, i == kSaveButton ? kPrimaryText : theme.text);
+        SetTextColor(paint.dc, i == kSaveButton ? theme.primaryText : theme.text);
         DrawTextW(paint.dc, g_confirm.labels[i], -1, &g_confirm.buttons[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
     SelectObject(paint.dc, oldFont);
@@ -285,8 +286,10 @@ SaveChoice AskSaveChanges(HWND owner, const std::wstring& documentName)
     g_confirm = ConfirmState{};
     g_confirm.dpi = GetDpiForWindow(owner);
     g_confirm.documentName = documentName;
-    g_confirm.titleFont = CreateUiFont(kTitleFontTenths, g_confirm.dpi, FW_SEMIBOLD);
-    g_confirm.bodyFont = CreateUiFont(kBodyFontTenths, g_confirm.dpi);
+    const wchar_t* face = HangulUiFontFace();
+    g_confirm.titleFont = CreateUiFontPx(kTitleFontPx, g_confirm.dpi, FW_BOLD, face);
+    g_confirm.bodyFont = CreateUiFontPx(kBodyFontPx, g_confirm.dpi, FW_NORMAL, face);
+    g_confirm.buttonFont = CreateUiFontPx(kButtonFontPx, g_confirm.dpi, FW_NORMAL, face);
     const SIZE size = Layout();
 
     // owner 창 가운데에 띄우고 화면 밖으로 나가지 않게 한다
@@ -306,6 +309,7 @@ SaveChoice AskSaveChanges(HWND owner, const std::wstring& documentName)
     if (!g_confirm.hwnd) {
         DeleteObject(g_confirm.titleFont);
         DeleteObject(g_confirm.bodyFont);
+        DeleteObject(g_confirm.buttonFont);
         return SaveChoice::Cancel;
     }
     // Windows 11: 둥근 모서리 + 시스템 테두리. 실패하면(Windows 10) 직접 테두리를 그린다.
@@ -336,5 +340,6 @@ SaveChoice AskSaveChanges(HWND owner, const std::wstring& documentName)
     g_confirm.hwnd = nullptr;
     DeleteObject(g_confirm.titleFont);
     DeleteObject(g_confirm.bodyFont);
+    DeleteObject(g_confirm.buttonFont);
     return g_confirm.result;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 // 리소스
+#define IDI_APP             1       // 가장 작은 ID의 아이콘이 탐색기에서 exe 아이콘으로 쓰인다
 #define IDR_MAINMENU        101
 #define IDR_ACCEL           102
 

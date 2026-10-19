@@ -2,7 +2,6 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <commdlg.h>
-#include <dwmapi.h>
 #include <shellapi.h>
 #include <shlwapi.h>
 #include <windowsx.h>
@@ -512,20 +511,39 @@ void OnCommand(UINT id)
     }
 }
 
-// 시스템 제목 표시줄을 본문과 같은 색으로 칠해 상단 바와 하나로 이어 보이게 한다.
-// 최소화/최대화/닫기 버튼은 그대로 시스템 것을 쓴다. Windows 10에서는 실패하며 기본 색이 유지된다.
-void ApplyTitleBarColors(HWND hwnd)
+// ---- 테마 ----
+
+// 이 스레드의 툴팁 창들(상단 바/찾기 바 버튼 설명)을 현재 테마로 그리게 한다.
+// 툴팁은 자식 창이 아니라 팝업이라 EnumChildWindows로는 찾을 수 없다.
+void ApplyTooltipTheme()
 {
-    const ThemeColors& theme = CurrentTheme();
-    const COLORREF caption = theme.windowBg;
-    const COLORREF text = theme.text;
-    DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
-    DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &text, sizeof(text));
+    EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM) -> BOOL {
+        wchar_t className[32];
+        if (GetClassNameW(hwnd, className, static_cast<int>(std::size(className))) &&
+            wcscmp(className, TOOLTIPS_CLASSW) == 0) {
+            ApplyControlTheme(hwnd);
+        }
+        return TRUE;
+    }, 0);
+}
+
+// Windows 설정에서 라이트/다크 앱 모드가 바뀌었을 때 화면 전체를 새 테마로 다시 그린다
+void OnSystemThemeChanged()
+{
+    const COLORREF previousText = DefaultTextColor();
+    if (!UpdateThemeFromSystem()) return;
+
+    ApplyTitleBarTheme(g_app.window);
+    ApplyMenuTheme();
+    ApplyTooltipTheme();
+    ApplyEditorTheme(g_app.editor, previousText);
+    RefreshFormatState();  // 색 표시가 "기본색"이면 새 기본색으로 바뀐다
+    RedrawWindow(g_app.window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
 }
 
 bool OnCreate(HWND hwnd)
 {
-    ApplyTitleBarColors(hwnd);
+    ApplyTitleBarTheme(hwnd);
     g_app.window = hwnd;
     g_app.dpi = GetDpiForWindow(hwnd);
 
@@ -547,6 +565,7 @@ bool OnCreate(HWND hwnd)
     LayoutChildren();
     UpdateTitle();
     RefreshFormatState();
+    ApplyTooltipTheme();
     return true;
 }
 
@@ -607,6 +626,13 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MOTE_RELAYOUT:
         LayoutChildren();
         return 0;
+
+    case WM_SETTINGCHANGE:
+        // 라이트/다크 앱 모드가 바뀌면 lParam이 "ImmersiveColorSet"인 알림이 온다
+        if (lp && CompareStringOrdinal(reinterpret_cast<LPCWSTR>(lp), -1, L"ImmersiveColorSet", -1, TRUE) == CSTR_EQUAL) {
+            OnSystemThemeChanged();
+        }
+        break;
 
     case WM_INITMENUPOPUP:
         UpdateMenuState(reinterpret_cast<HMENU>(wp));
@@ -680,11 +706,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         return 1;
     }
 
+    // 창을 만들기 전에 시스템 테마(라이트/다크)를 정해 처음부터 맞는 색으로 그린다
+    UpdateThemeFromSystem();
+    ApplyMenuTheme();
+
     WNDCLASSEXW wc = {sizeof(wc)};
     wc.lpfnWndProc = MainWindowProc;
     wc.hInstance = instance;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    // 큰 아이콘(Alt+Tab/작업 표시줄)과 작은 아이콘(제목 표시줄)을 각각 알맞은 크기로 불러온다
+    LoadIconMetric(instance, MAKEINTRESOURCEW(IDI_APP), LIM_LARGE, &wc.hIcon);
+    LoadIconMetric(instance, MAKEINTRESOURCEW(IDI_APP), LIM_SMALL, &wc.hIconSm);
     wc.lpszClassName = kWindowClass;
     RegisterClassExW(&wc);
 

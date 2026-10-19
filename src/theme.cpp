@@ -1,5 +1,7 @@
 #include "theme.h"
 
+#include <dwmapi.h>
+#include <uxtheme.h>
 #include <algorithm>
 namespace Gdiplus {
 using std::max;
@@ -18,7 +20,44 @@ constexpr ThemeColors kLight = {
     RGB(0xE9, 0xE9, 0xE7),  // border
     RGB(0xEF, 0xEF, 0xEE),  // hover
     RGB(0xE6, 0xE6, 0xE4),  // pressed
+    RGB(0x37, 0x35, 0x2F),  // primaryBg
+    RGB(0x4A, 0x48, 0x42),  // primaryHover
+    RGB(0x2A, 0x28, 0x24),  // primaryPressed
+    RGB(0xFF, 0xFF, 0xFF),  // primaryText
+    RGB(0xD4, 0x4C, 0x47),  // notFound
 };
+
+// Dark 모드 색 (Notion 다크 톤: 순수 검정 대신 아주 어두운 회색, 글자는 살짝 낮춘 흰색)
+constexpr ThemeColors kDark = {
+    RGB(0x19, 0x19, 0x19),  // windowBg
+    RGB(0x25, 0x25, 0x25),  // secondaryBg
+    RGB(0xD4, 0xD4, 0xD2),  // text
+    RGB(0x9B, 0x9B, 0x99),  // secondaryText
+    RGB(0x2F, 0x2F, 0x2F),  // border
+    RGB(0x2C, 0x2C, 0x2C),  // hover
+    RGB(0x37, 0x37, 0x37),  // pressed
+    RGB(0xE6, 0xE6, 0xE4),  // primaryBg
+    RGB(0xFF, 0xFF, 0xFF),  // primaryHover
+    RGB(0xC8, 0xC8, 0xC6),  // primaryPressed
+    RGB(0x19, 0x19, 0x19),  // primaryText
+    RGB(0xE5, 0x6F, 0x6A),  // notFound
+};
+
+bool g_dark = false;
+
+// Windows 설정 > 개인 설정 > 색 > "기본 앱 모드"
+bool SystemUsesDarkApps()
+{
+    DWORD value = 1, size = sizeof(value);
+    const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                                        L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size);
+    return status == ERROR_SUCCESS && value == 0;
+}
+
+// uxtheme.dll의 문서화되지 않은 서수 함수 (Windows 10 1903 이상). 팝업 메뉴를 다크로 그리는 데만 쓴다.
+enum class PreferredAppMode { Default, AllowDark, ForceDark, ForceLight };
+using SetPreferredAppModeFn = PreferredAppMode(WINAPI*)(PreferredAppMode);
+using FlushMenuThemesFn = void(WINAPI*)();
 
 int CALLBACK FontExistsProc(const LOGFONTW*, const TEXTMETRICW*, DWORD, LPARAM found)
 {
@@ -42,7 +81,48 @@ bool FontExists(const wchar_t* face)
 
 const ThemeColors& CurrentTheme()
 {
-    return kLight;
+    return g_dark ? kDark : kLight;
+}
+
+bool IsDarkTheme()
+{
+    return g_dark;
+}
+
+bool UpdateThemeFromSystem()
+{
+    const bool dark = SystemUsesDarkApps();
+    if (dark == g_dark) return false;
+    g_dark = dark;
+    return true;
+}
+
+void ApplyMenuTheme()
+{
+    static HMODULE uxtheme = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!uxtheme) return;
+    static auto setMode = reinterpret_cast<SetPreferredAppModeFn>(GetProcAddress(uxtheme, MAKEINTRESOURCEA(135)));
+    static auto flushMenus = reinterpret_cast<FlushMenuThemesFn>(GetProcAddress(uxtheme, MAKEINTRESOURCEA(136)));
+    if (!setMode || !flushMenus) return;
+    setMode(g_dark ? PreferredAppMode::ForceDark : PreferredAppMode::ForceLight);
+    flushMenus();
+}
+
+void ApplyTitleBarTheme(HWND window)
+{
+    const ThemeColors& theme = CurrentTheme();
+    const BOOL dark = g_dark;
+    // 다크 모드 제목 표시줄(Windows 10 2004 이상). 최소화/최대화/닫기 버튼 색도 함께 바뀐다.
+    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+    // Windows 11: 제목 표시줄을 본문과 같은 색으로 칠해 상단 바와 하나로 이어 보이게 한다
+    DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR, &theme.windowBg, sizeof(theme.windowBg));
+    DwmSetWindowAttribute(window, DWMWA_TEXT_COLOR, &theme.text, sizeof(theme.text));
+}
+
+void ApplyControlTheme(HWND control)
+{
+    // "DarkMode_Explorer"는 탐색기가 쓰는 다크 비주얼 스타일 (스크롤바, 툴팁)
+    SetWindowTheme(control, g_dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
 }
 
 const wchar_t* UiFontFace()
@@ -68,6 +148,23 @@ HFONT CreateUiFont(int pointTenths, UINT dpi, int weight, const wchar_t* face)
     lf.lfQuality = CLEARTYPE_QUALITY;
     wcsncpy_s(lf.lfFaceName, face ? face : UiFontFace(), _TRUNCATE);
     return CreateFontIndirectW(&lf);
+}
+
+HFONT CreateUiFontPx(int pixelSize, UINT dpi, int weight, const wchar_t* face)
+{
+    LOGFONTW lf = {};
+    lf.lfHeight = -Scale(pixelSize, dpi);  // 음수: 줄 간격이 아니라 글자 자체의 높이
+    lf.lfWeight = weight;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    wcsncpy_s(lf.lfFaceName, face ? face : UiFontFace(), _TRUNCATE);
+    return CreateFontIndirectW(&lf);
+}
+
+const wchar_t* HangulUiFontFace()
+{
+    static const wchar_t* face = FontExists(L"Malgun Gothic") ? L"Malgun Gothic" : UiFontFace();
+    return face;
 }
 
 void FillRoundRect(Gdiplus::Graphics& graphics, const RECT& rect, COLORREF color, int radius)

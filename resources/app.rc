@@ -2,6 +2,9 @@
 #include <windows.h>
 #include "resource.h"
 
+// 원본: mote_icon.png → make_icon.py로 생성 (16~256px)
+IDI_APP ICON "mote.ico"
+
 // 네이티브 메뉴바로 붙이지 않고, 상단 바 버튼에서 팝업으로만 사용한다
 IDR_MAINMENU MENU
 BEGIN

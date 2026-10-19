@@ -37,7 +37,6 @@ constexpr int kMaxCount = 9999;           // 이 개수를 넘으면 세기를 �
 constexpr UINT_PTR kRecountTimerId = 1;
 constexpr UINT kRecountDelayMs = 150;     // 본문 편집이 이어지는 동안에는 다시 세지 않고 기다린다
 
-constexpr COLORREF kNotFoundColor = RGB(0xD4, 0x4C, 0x47);  // 색상 팔레트의 Red와 같은 은은한 빨강
 
 // Segoe Fluent Icons / MDL2 Assets
 constexpr wchar_t kIconUp[] = L"";
@@ -64,7 +63,6 @@ struct FindBarState {
     UINT dpi = 96;
     HFONT font = nullptr;
     HFONT iconFont = nullptr;
-    HBRUSH fieldBrush = nullptr;
     bool visible = false;
     bool replaceMode = false;
     bool hasCount = false;      // 찾기 칸에 내용이 있어 개수를 표시하는 중
@@ -465,9 +463,12 @@ LRESULT CALLBACK FindBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         // 입력란 배경을 둥근 사각형과 같은 색으로 칠해 테두리 없는 입력란처럼 보이게 한다
         HDC dc = reinterpret_cast<HDC>(wp);
         const bool red = IsNotFound() && reinterpret_cast<HWND>(lp) == g_find.findEdit;
-        SetTextColor(dc, red ? kNotFoundColor : CurrentTheme().text);
-        SetBkColor(dc, CurrentTheme().secondaryBg);
-        return reinterpret_cast<LRESULT>(g_find.fieldBrush);
+        const ThemeColors& theme = CurrentTheme();
+        SetTextColor(dc, red ? theme.notFound : theme.text);
+        SetBkColor(dc, theme.secondaryBg);
+        // DC 브러시를 쓰면 테마가 바뀌어도 브러시를 다시 만들 필요가 없다
+        SetDCBrushColor(dc, theme.secondaryBg);
+        return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
     }
 
     case WM_MOUSEMOVE:
@@ -524,9 +525,7 @@ LRESULT CALLBACK FindBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_DESTROY:
         if (g_find.font) DeleteObject(g_find.font);
         if (g_find.iconFont) DeleteObject(g_find.iconFont);
-        if (g_find.fieldBrush) DeleteObject(g_find.fieldBrush);
         g_find.font = g_find.iconFont = nullptr;
-        g_find.fieldBrush = nullptr;
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -548,7 +547,6 @@ HWND CreateFindBar(HWND owner, HINSTANCE instance, HWND editor)
     g_find.owner = owner;
     g_find.editor = editor;
     g_find.dpi = GetDpiForWindow(owner);
-    g_find.fieldBrush = CreateSolidBrush(CurrentTheme().secondaryBg);
     // 처음에는 숨겨 둔다. WS_CLIPCHILDREN: 바를 그릴 때 입력란을 덮어 그리지 않게 한다.
     g_find.hwnd = CreateWindowExW(0, kFindBarClass, L"", WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
                                   0, 0, 0, 0, owner, nullptr, instance, nullptr);

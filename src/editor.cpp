@@ -296,6 +296,7 @@ HWND CreateEditor(HWND parent, HINSTANCE instance, HMENU contextMenu)
     SendMessageW(editor, EM_AUTOURLDETECT, 0, 0);
 
     SendMessageW(editor, EM_SETBKGNDCOLOR, 0, CurrentTheme().windowBg);
+    ApplyControlTheme(editor);
     SendMessageW(editor, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
 
     // 문서 단위 작업에 쓸 TOM 인터페이스를 얻어 둔다
@@ -308,6 +309,24 @@ HWND CreateEditor(HWND parent, HINSTANCE instance, HMENU contextMenu)
     SetWindowSubclass(editor, EditorSubclassProc, 0, 0);
     ResetEditorDocument(editor);
     return editor;
+}
+
+void ApplyEditorTheme(HWND editor, COLORREF previousText)
+{
+    SendMessageW(editor, EM_SETBKGNDCOLOR, 0, CurrentTheme().windowBg);
+    ApplyControlTheme(editor);  // 세로 스크롤바
+    ReplaceTextColor(editor, static_cast<long>(previousText), static_cast<long>(DefaultTextColor()));
+
+    // 빈 문서에서 새로 입력할 글자의 색. 색만 바꾸므로 글꼴 등 다른 기본 서식은 건드리지 않는다.
+    // 테마 변경은 문서 수정이 아니므로 수정 상태를 그대로 유지한다.
+    const LPARAM wasModified = SendMessageW(editor, EM_GETMODIFY, 0, 0);
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR;
+    cf.crTextColor = DefaultTextColor();
+    SendMessageW(editor, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
+    SendMessageW(editor, EM_SETMODIFY, wasModified, 0);
+    InvalidateRect(editor, nullptr, TRUE);
 }
 
 void SetEditorDpi(HWND editor, UINT dpi)
