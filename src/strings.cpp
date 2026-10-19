@@ -33,6 +33,7 @@ constexpr Entry kStrings[] = {
     {L"Find previous (Shift+F3)", L"이전 찾기 (Shift+F3)"},
     {L"Find next (F3)", L"다음 찾기 (F3)"},
     {L"Close (Esc)", L"닫기 (Esc)"},
+    {L"Toggle replace (Ctrl+H)", L"바꾸기 표시/숨기기 (Ctrl+H)"},
     {L"Replace (Enter)", L"바꾸기 (Enter)"},
     {L"Replace all (Ctrl+Alt+Enter)", L"모두 바꾸기 (Ctrl+Alt+Enter)"},
     {L"%d found", L"%d개"},

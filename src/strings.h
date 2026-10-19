@@ -26,6 +26,7 @@ enum class StrId {
     TipFindPrev,
     TipFindNext,
     TipCloseFind,
+    TipToggleReplace,
     TipReplace,
     TipReplaceAll,
     MatchCountFormat,  // %d: 전체 개수 (현재 번호를 모를 때)

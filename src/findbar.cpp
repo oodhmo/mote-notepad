@@ -43,8 +43,9 @@ constexpr UINT kRecountDelayMs = 150;     // 본문 편집이 이어지는 동�
 constexpr wchar_t kIconUp[] = L"";
 constexpr wchar_t kIconDown[] = L"";
 constexpr wchar_t kIconClose[] = L"";
+constexpr wchar_t kIconReplace[] = L"\xE8AB";  // ⇄ (Switch)
 
-enum { kPrevButton, kNextButton, kCloseButton, kReplaceButton, kReplaceAllButton, kButtonCount };
+enum { kPrevButton, kNextButton, kToggleReplaceButton, kCloseButton, kReplaceButton, kReplaceAllButton, kButtonCount };
 
 struct Button {
     const wchar_t* label;
@@ -77,6 +78,7 @@ struct FindBarState {
     Button buttons[kButtonCount] = {
         {kIconUp, true, Str(StrId::TipFindPrev), {}},
         {kIconDown, true, Str(StrId::TipFindNext), {}},
+        {kIconReplace, true, Str(StrId::TipToggleReplace), {}},
         {kIconClose, true, Str(StrId::TipCloseFind), {}},
         {Str(StrId::ReplaceButton), false, Str(StrId::TipReplace), {}},
         {Str(StrId::ReplaceAllButton), false, Str(StrId::TipReplaceAll), {}},
@@ -180,11 +182,14 @@ void DoReplaceAll()
     Refresh(replaced > 0 ? Format(Str(StrId::ReplacedFormat), replaced) : std::wstring());
 }
 
+void SetReplaceMode(bool on);
+
 void RunButton(int index)
 {
     switch (index) {
     case kPrevButton:       DoFind(false); break;
     case kNextButton:       DoFind(true); break;
+    case kToggleReplaceButton: SetReplaceMode(!g_find.replaceMode); break;
     case kCloseButton:      HideFindBar(); break;
     case kReplaceButton:    DoReplace(); break;
     case kReplaceAllButton: DoReplaceAll(); break;
@@ -244,7 +249,7 @@ void LayoutFindBar()
     const int replaceAllWidth = TextWidth(g_find.buttons[kReplaceAllButton].label) + textPad * 2;
 
     // 입력란 폭: 두 행 모두 버튼이 들어갈 자리를 남긴다
-    const int row1Room = client.right - margin * 2 - fieldGap - iconWidth * 3 - gap * 2;
+    const int row1Room = client.right - margin * 2 - fieldGap - iconWidth * 4 - gap * 3;
     const int row2Room = client.right - margin * 2 - fieldGap - replaceWidth - replaceAllWidth - gap;
     int fieldWidth = std::min(Scale(kFieldWidth, dpi), row1Room);
     if (g_find.replaceMode) fieldWidth = std::min(fieldWidth, row2Room);
@@ -260,6 +265,8 @@ void LayoutFindBar()
     g_find.buttons[kPrevButton].rect = rowRect(0, x, iconWidth);
     x += iconWidth + gap;
     g_find.buttons[kNextButton].rect = rowRect(0, x, iconWidth);
+    x += iconWidth + gap;
+    g_find.buttons[kToggleReplaceButton].rect = rowRect(0, x, iconWidth);
     x += iconWidth;
     g_find.buttons[kCloseButton].rect = rowRect(0, std::max(x + gap, static_cast<int>(client.right) - margin - iconWidth), iconWidth);
     g_find.statusRect = rowRect(0, x + fieldGap, std::max(0, static_cast<int>(g_find.buttons[kCloseButton].rect.left) - x - fieldGap * 2));
@@ -307,7 +314,8 @@ void PaintFindBar(HWND hwnd)
         if (g_find.replaceMode) FillRoundRect(graphics, g_find.replaceField, theme.secondaryBg, radius);
         for (int i = 0; i < kButtonCount; ++i) {
             if (!IsButtonVisible(i)) continue;
-            if (i == g_find.pressed) {
+            const bool active = i == kToggleReplaceButton && g_find.replaceMode;  // 상단 바 B/I/U의 켜짐 표시와 같은 모양
+            if (i == g_find.pressed || active) {
                 FillRoundRect(graphics, g_find.buttons[i].rect, theme.pressed, radius);
             } else if (i == g_find.hot) {
                 FillRoundRect(graphics, g_find.buttons[i].rect, theme.hover, radius);
@@ -321,7 +329,8 @@ void PaintFindBar(HWND hwnd)
         if (!IsButtonVisible(i)) continue;
         Button& button = g_find.buttons[i];
         // 아이콘은 평소엔 옅게, hover일 때만 진하게 (상단 바와 같은 규칙)
-        const bool emphasized = !button.icon || i == g_find.hot || i == g_find.pressed;
+        const bool emphasized = !button.icon || i == g_find.hot || i == g_find.pressed ||
+                                (i == kToggleReplaceButton && g_find.replaceMode);
         SetTextColor(paint.dc, emphasized ? theme.text : theme.secondaryText);
         SelectObject(paint.dc, button.icon ? g_find.iconFont : g_find.font);
         DrawTextW(paint.dc, button.label, -1, &button.rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
@@ -448,6 +457,19 @@ void UpdateTooltipRects()
         ti.rect = IsButtonVisible(i) ? g_find.buttons[i].rect : RECT{};
         SendMessageW(g_find.tooltip, TTM_NEWTOOLRECTW, 0, reinterpret_cast<LPARAM>(&ti));
     }
+}
+
+// 찾기 바의 바꾸기 줄을 열거나 닫는다 (찾기 칸 내용은 그대로 둔다)
+void SetReplaceMode(bool on)
+{
+    if (g_find.replaceMode == on) return;
+    g_find.replaceMode = on;
+    SendMessageW(g_find.owner, WM_MOTE_RELAYOUT, 0, 0);
+    LayoutFindBar();
+    UpdateTooltipRects();
+    HWND target = on ? g_find.replaceEdit : g_find.findEdit;
+    SetFocus(target);
+    SendMessageW(target, EM_SETSEL, 0, -1);
 }
 
 LRESULT CALLBACK FindBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
