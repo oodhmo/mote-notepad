@@ -1,5 +1,7 @@
 # mote
 
+한국어 | [English](README.en.md)
+
 선택한 글자에 색을 입힐 수 있는 초경량 Windows 메모장입니다.
 
 Windows 메모장처럼 단순하게 쓰면서, 강조하고 싶은 부분에는 글자색과 굵게·기울임꼴·밑줄을 바로 적용할 수 있습니다. 설치 없이 `mote.exe` 하나로 실행됩니다.
@@ -141,7 +143,7 @@ cmake --build --preset release
    git tag vx.y.z
    git push origin main --tags
    ```
-4. GitHub 릴리스를 만들고 `mote.exe`를 올립니다. 노트에는 지난 태그 이후의 기능 추가와 수정 내용을 적습니다.
+4. GitHub 릴리스를 만들고 `mote.exe`를 올립니다. 노트에는 지난 태그 이후의 기능 추가와 수정 내용을 한국어와 영어로 함께 적습니다.
    ```powershell
    gh release create vx.y.z build/Release/mote.exe --title "mote x.y.z" --notes "..."
    ```
