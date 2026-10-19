@@ -113,7 +113,22 @@ bool WriteWholeFile(const std::wstring& path, const std::string& bytes, std::wst
     return ok;
 }
 
-std::wstring DecodeText(const std::string& bytes)
+// UTF-8이 아닌 옛 텍스트 파일에 쓸 코드 페이지 (한국어 Windows는 CP949).
+// "Unicode UTF-8 지원(베타)"를 켜면 GetACP()가 UTF-8(65001)을 돌려주므로, 그때는 시스템 언어의 원래 코드 페이지를 쓴다.
+UINT LegacyCodePage()
+{
+    static const UINT codePage = [] {
+        const UINT acp = GetACP();
+        if (acp != CP_UTF8) return acp;
+        UINT localeCodePage = 0;
+        GetLocaleInfoEx(LOCALE_NAME_SYSTEM_DEFAULT, LOCALE_IDEFAULTANSICODEPAGE | LOCALE_RETURN_NUMBER,
+                        reinterpret_cast<LPWSTR>(&localeCodePage), sizeof(localeCodePage) / sizeof(wchar_t));
+        return (localeCodePage != 0 && localeCodePage != CP_UTF8) ? localeCodePage : 1252u;
+    }();
+    return codePage;
+}
+
+std::wstring DecodeText(const std::string& bytes, TextEncoding& encoding)
 {
     const auto* data = reinterpret_cast<const unsigned char*>(bytes.data());
     const size_t size = bytes.size();
@@ -121,6 +136,7 @@ std::wstring DecodeText(const std::string& bytes)
     // UTF-16 BOM
     if (size >= 2 && ((data[0] == 0xFF && data[1] == 0xFE) || (data[0] == 0xFE && data[1] == 0xFF))) {
         const bool bigEndian = data[0] == 0xFE;
+        encoding = bigEndian ? TextEncoding::Utf16Be : TextEncoding::Utf16Le;
         std::wstring text((size - 2) / 2, L'\0');
         for (size_t i = 0; i < text.size(); ++i) {
             const unsigned char a = data[2 + i * 2], b = data[3 + i * 2];
@@ -130,7 +146,9 @@ std::wstring DecodeText(const std::string& bytes)
     }
 
     // UTF-8 BOM은 건너뛴다
-    size_t start = (size >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) ? 3 : 0;
+    const bool bom = size >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF;
+    const size_t start = bom ? 3 : 0;
+    encoding = bom ? TextEncoding::Utf8Bom : TextEncoding::Utf8;
     const char* src = bytes.data() + start;
     const int srcLen = static_cast<int>(size - start);
     if (srcLen == 0) return {};
@@ -139,21 +157,84 @@ std::wstring DecodeText(const std::string& bytes)
     UINT codePage = CP_UTF8;
     int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, src, srcLen, nullptr, 0);
     if (length == 0) {
-        codePage = CP_ACP;
-        length = MultiByteToWideChar(CP_ACP, 0, src, srcLen, nullptr, 0);
+        codePage = LegacyCodePage();
+        encoding = TextEncoding::Ansi;
+        length = MultiByteToWideChar(codePage, 0, src, srcLen, nullptr, 0);
     }
     std::wstring text(static_cast<size_t>(length), L'\0');
     MultiByteToWideChar(codePage, codePage == CP_UTF8 ? MB_ERR_INVALID_CHARS : 0, src, srcLen, text.data(), length);
     return text;
 }
 
-std::string EncodeUtf8(const wchar_t* text, size_t count)
+// 첫 줄바꿈의 종류. 줄바꿈이 섞여 있으면 저장할 때 이 종류로 통일된다 (메모장과 같은 동작).
+LineEnding DetectLineEnding(const std::wstring& text)
 {
-    if (count == 0) return {};
-    const int length = WideCharToMultiByte(CP_UTF8, 0, text, static_cast<int>(count), nullptr, 0, nullptr, nullptr);
-    std::string out(static_cast<size_t>(length), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text, static_cast<int>(count), out.data(), length, nullptr, nullptr);
+    const size_t pos = text.find_first_of(L"\r\n");
+    if (pos == std::wstring::npos) return LineEnding::CrLf;
+    if (text[pos] == L'\n') return LineEnding::Lf;
+    return (pos + 1 < text.size() && text[pos + 1] == L'\n') ? LineEnding::CrLf : LineEnding::Cr;
+}
+
+// RichEdit가 내보낸 텍스트(문단 끝 = CRLF)의 줄바꿈을 바꾼다
+std::wstring ConvertLineEndings(const wchar_t* text, size_t count, LineEnding lineEnding)
+{
+    std::wstring out(text, count);
+    if (lineEnding == LineEnding::CrLf) return out;
+    const wchar_t replacement = lineEnding == LineEnding::Lf ? L'\n' : L'\r';
+    size_t write = 0;
+    for (size_t read = 0; read < out.size(); ++read) {
+        if (out[read] == L'\r' && read + 1 < out.size() && out[read + 1] == L'\n') {
+            out[write++] = replacement;
+            ++read;
+        } else {
+            out[write++] = out[read];
+        }
+    }
+    out.resize(write);
     return out;
+}
+
+// 인코딩에 맞춰 바이트로 바꾼다. ANSI로 표현할 수 없는 글자가 있으면 false (다른 인코딩은 항상 성공).
+bool EncodeText(const std::wstring& text, TextEncoding encoding, std::string& out)
+{
+    out.clear();
+    const int count = static_cast<int>(text.size());
+    switch (encoding) {
+    case TextEncoding::Utf16Le:
+    case TextEncoding::Utf16Be: {
+        const bool bigEndian = encoding == TextEncoding::Utf16Be;
+        out.reserve(2 + text.size() * 2);
+        out += bigEndian ? "\xFE\xFF" : "\xFF\xFE";
+        for (const wchar_t ch : text) {
+            const char low = static_cast<char>(ch & 0xFF);
+            const char high = static_cast<char>(ch >> 8);
+            out += bigEndian ? high : low;
+            out += bigEndian ? low : high;
+        }
+        return true;
+    }
+    case TextEncoding::Ansi: {
+        if (count == 0) return true;
+        // 비슷한 글자로 몰래 바꾸지 않도록(WC_NO_BEST_FIT_CHARS) 하고, 대체 문자가 쓰였으면 실패로 본다
+        BOOL usedDefault = FALSE;
+        const int length = WideCharToMultiByte(LegacyCodePage(), WC_NO_BEST_FIT_CHARS, text.data(), count, nullptr, 0, nullptr, &usedDefault);
+        if (length == 0 || usedDefault) return false;
+        out.resize(static_cast<size_t>(length));
+        WideCharToMultiByte(LegacyCodePage(), WC_NO_BEST_FIT_CHARS, text.data(), count, out.data(), length, nullptr, nullptr);
+        return true;
+    }
+    case TextEncoding::Utf8Bom:
+    case TextEncoding::Utf8:
+    default: {
+        if (encoding == TextEncoding::Utf8Bom) out = "\xEF\xBB\xBF";
+        if (count == 0) return true;
+        const int length = WideCharToMultiByte(CP_UTF8, 0, text.data(), count, nullptr, 0, nullptr, nullptr);
+        const size_t prefix = out.size();
+        out.resize(prefix + static_cast<size_t>(length));
+        WideCharToMultiByte(CP_UTF8, 0, text.data(), count, out.data() + prefix, length, nullptr, nullptr);
+        return true;
+    }
+    }
 }
 
 struct MemoryReader {
@@ -209,6 +290,17 @@ bool GetDialogResultPath(IFileDialog* dialog, std::wstring& path)
 }
 
 }  // namespace
+
+std::wstring EncodingName(TextEncoding encoding)
+{
+    switch (encoding) {
+    case TextEncoding::Utf8Bom: return L"UTF-8 (BOM)";
+    case TextEncoding::Utf16Le: return L"UTF-16 LE";
+    case TextEncoding::Utf16Be: return L"UTF-16 BE";
+    case TextEncoding::Ansi:    return L"ANSI (CP" + std::to_wstring(LegacyCodePage()) + L")";
+    default:                    return L"UTF-8";
+    }
+}
 
 FileFormat FormatFromPath(const std::wstring& path)
 {
@@ -280,7 +372,8 @@ bool ShowSaveDialog(HWND owner, const std::wstring& currentPath, FileFormat curr
     return ok;
 }
 
-bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& format, std::wstring& error)
+bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& format, TextFileInfo& textInfo,
+                        std::wstring& error)
 {
     // 파일을 먼저 전부 읽어 두어, 읽기 실패 시 현재 문서를 건드리지 않는다
     std::string bytes;
@@ -292,11 +385,13 @@ bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& forma
     // 큰 문서를 읽는 동안 화면을 다시 그리지 않는다
     SendMessageW(editor, WM_SETREDRAW, FALSE, 0);
     bool ok;
+    TextFileInfo info;
     if (isRtf) {
         ok = StreamIn(editor, bytes.data(), bytes.size(), SF_RTF);
         if (ok) NormalizeLoadedRichText(editor);
     } else {
-        const std::wstring text = DecodeText(bytes);
+        const std::wstring text = DecodeText(bytes, info.encoding);
+        info.lineEnding = DetectLineEnding(text);
         ok = StreamIn(editor, text.data(), text.size() * sizeof(wchar_t), SF_TEXT | SF_UNICODE);
         if (ok) ApplyPlainTextFormatting(editor);
     }
@@ -314,18 +409,24 @@ bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& forma
     SendMessageW(editor, EM_SCROLLCARET, 0, 0);
     MarkEditorClean(editor);
     format = isRtf ? FileFormat::Rtf : FileFormat::Text;
+    textInfo = info;
     return true;
 }
 
-bool SaveEditorToFile(HWND editor, const std::wstring& path, FileFormat format, std::wstring& error)
+SaveResult SaveEditorToFile(HWND editor, const std::wstring& path, FileFormat format, const TextFileInfo& textInfo,
+                            std::wstring& error)
 {
     std::string bytes;
     bool ok;
     if (format == FileFormat::Text) {
-        // 서식은 버리고 텍스트만 UTF-8(BOM 없음)로 저장한다
+        // 서식은 버리고 텍스트만 원래 인코딩/줄바꿈으로 저장한다
         std::string utf16;
         ok = StreamOut(editor, SF_TEXT | SF_UNICODE, utf16);
-        if (ok) bytes = EncodeUtf8(reinterpret_cast<const wchar_t*>(utf16.data()), utf16.size() / sizeof(wchar_t));
+        if (ok) {
+            const std::wstring text = ConvertLineEndings(reinterpret_cast<const wchar_t*>(utf16.data()),
+                                                         utf16.size() / sizeof(wchar_t), textInfo.lineEnding);
+            if (!EncodeText(text, textInfo.encoding, bytes)) return SaveResult::NeedsUnicode;
+        }
     } else {
         // 테마 기본색으로 칠해진 글자는 파일에 "자동 색"으로 저장해 다른 테마/앱에서도 자연스럽게 보이게 한다
         const long themeColor = static_cast<long>(DefaultTextColor());
@@ -335,10 +436,10 @@ bool SaveEditorToFile(HWND editor, const std::wstring& path, FileFormat format, 
     }
     if (!ok) {
         error = Str(StrId::ErrorConvert);
-        return false;
+        return SaveResult::Failed;
     }
-    if (!WriteWholeFile(path, bytes, error)) return false;
+    if (!WriteWholeFile(path, bytes, error)) return SaveResult::Failed;
 
     SendMessageW(editor, EM_SETMODIFY, FALSE, 0);
-    return true;
+    return SaveResult::Ok;
 }

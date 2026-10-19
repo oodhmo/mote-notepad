@@ -36,6 +36,9 @@ enum class StrId {
     Save,
     DontSave,
     Cancel,
+    SaveUtf8Title,
+    SaveUtf8Message,   // %s: 원래 인코딩 이름
+    SaveUtf8Button,
     // 파일
     Untitled,
     FilterDocuments,

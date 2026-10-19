@@ -55,6 +55,7 @@ struct AppState {
     UINT dpi = 96;
     std::wstring filePath;       // 비어 있으면 저장된 적 없는 새 문서
     FileFormat format = FileFormat::Rtf;
+    TextFileInfo textInfo;          // TXT의 원래 인코딩/줄바꿈 (저장할 때 그대로 쓴다)
     bool titleModified = false;     // 제목에 수정 표시(*)를 붙여 둔 상태인지
     bool toolbarCollapsed = false;  // 사용자가 상단 바를 접었는지
     bool toolbarPeeking = false;    // 접힌 바를 Alt+F / Alt+E로 잠깐 보여 주는 중인지
@@ -335,6 +336,7 @@ void NewDocument()
     ResetEditorDocument(g_app.editor);
     g_app.filePath.clear();
     g_app.format = FileFormat::Rtf;
+    g_app.textInfo = {};
     UpdateTitle();
     RefreshFormatState();
 }
@@ -342,17 +344,40 @@ void NewDocument()
 bool OpenDocument(const std::wstring& path)
 {
     FileFormat format = FileFormat::Rtf;
+    TextFileInfo textInfo;
     std::wstring error;
-    if (!LoadFileIntoEditor(g_app.editor, path, format, error)) {
+    if (!LoadFileIntoEditor(g_app.editor, path, format, textInfo, error)) {
         RemoveRecentFile(path);  // 지워졌거나 옮겨진 파일이 최근 목록에 계속 남지 않게 한다
         ShowError(Str(StrId::ErrorOpenFile), path + L"\n\n" + error);
         return false;
     }
     g_app.filePath = path;
     g_app.format = format;
+    g_app.textInfo = textInfo;
     AddRecentFile(path);
     UpdateTitle();
     RefreshFormatState();
+    return true;
+}
+
+// 파일로 저장한다. 원래 인코딩(ANSI)으로 저장할 수 없는 글자가 있으면 UTF-8로 저장할지 묻고,
+// 그렇게 저장하면 textInfo의 인코딩을 UTF-8로 바꾼다. 저장하지 않았으면 false.
+bool WriteDocument(const std::wstring& path, FileFormat format, TextFileInfo& textInfo)
+{
+    std::wstring error;
+    SaveResult result = SaveEditorToFile(g_app.editor, path, format, textInfo, error);
+    if (result == SaveResult::NeedsUnicode) {
+        std::wstring message = Str(StrId::SaveUtf8Message);
+        const size_t slot = message.find(L"%s");
+        if (slot != std::wstring::npos) message.replace(slot, 2, EncodingName(textInfo.encoding));
+        if (!AskConfirm(g_app.window, Str(StrId::SaveUtf8Title), message, Str(StrId::SaveUtf8Button))) return false;
+        textInfo.encoding = TextEncoding::Utf8;
+        result = SaveEditorToFile(g_app.editor, path, format, textInfo, error);
+    }
+    if (result != SaveResult::Ok) {
+        ShowError(Str(StrId::ErrorSaveFile), path + L"\n\n" + error);
+        return false;
+    }
     return true;
 }
 
@@ -361,14 +386,13 @@ bool SaveDocumentAs()
     std::wstring path;
     if (!ShowSaveDialog(g_app.window, g_app.filePath, g_app.format, path)) return false;
 
+    // TXT를 다른 이름의 TXT로 저장하면 인코딩/줄바꿈을 이어 쓰고, 서식 문서에서 바꾸면 기본값(UTF-8, CRLF)을 쓴다
     const FileFormat format = FormatFromPath(path);
-    std::wstring error;
-    if (!SaveEditorToFile(g_app.editor, path, format, error)) {
-        ShowError(Str(StrId::ErrorSaveFile), path + L"\n\n" + error);
-        return false;
-    }
+    TextFileInfo textInfo = g_app.format == FileFormat::Text ? g_app.textInfo : TextFileInfo{};
+    if (!WriteDocument(path, format, textInfo)) return false;
     g_app.filePath = path;
     g_app.format = format;
+    g_app.textInfo = textInfo;
     AddRecentFile(path);
     UpdateTitle();
     return true;
@@ -377,11 +401,7 @@ bool SaveDocumentAs()
 bool SaveDocument()
 {
     if (g_app.filePath.empty()) return SaveDocumentAs();
-    std::wstring error;
-    if (!SaveEditorToFile(g_app.editor, g_app.filePath, g_app.format, error)) {
-        ShowError(Str(StrId::ErrorSaveFile), g_app.filePath + L"\n\n" + error);
-        return false;
-    }
+    if (!WriteDocument(g_app.filePath, g_app.format, g_app.textInfo)) return false;
     AddRecentFile(g_app.filePath);
     UpdateTitle();
     return true;

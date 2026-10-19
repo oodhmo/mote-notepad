@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <string>
 
 namespace Gdiplus {
 class Graphics;
@@ -58,6 +59,10 @@ HFONT CreateUiFontPx(int pixelSize, UINT dpi, int weight = FW_NORMAL, const wcha
 // Segoe UI에는 한글이 없어 Windows가 글자마다 다른 글꼴로 대체하는데, 그 크기 비율이 기기마다 달라
 // 같은 px이어도 기기별로 크기가 들쭉날쭉해진다. 한 글꼴로 고정하면 어디서나 같은 비율로 보인다.
 const wchar_t* HangulUiFontFace();
+
+// 띄어쓰기 위치에서만 줄을 나눠 width 안에 들어가게 '\n'을 넣는다.
+// DrawText의 DT_WORDBREAK는 한글을 글자 단위로 끊어 "고르/거나"처럼 단어 중간에서 줄이 바뀌기 때문이다.
+std::wstring WrapAtSpaces(HDC dc, HFONT font, const std::wstring& text, int width);
 
 // GDI의 RoundRect는 안티앨리어싱이 없어 모서리가 거칠어 GDI+로 그린다
 void FillRoundRect(Gdiplus::Graphics& graphics, const RECT& rect, COLORREF color, int radius);

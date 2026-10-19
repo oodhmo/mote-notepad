@@ -43,6 +43,10 @@ constexpr Entry kStrings[] = {
     {L"Save", L"저장"},
     {L"Don't Save", L"저장 안 함"},
     {L"Cancel", L"취소"},
+    {L"Save as UTF-8?", L"UTF-8로 저장할까요?"},
+    {L"This document contains characters that can't be saved in its original encoding, %s. Saving as UTF-8 keeps every character.",
+     L"이 문서에는 원래 인코딩인 %s 형식으로 저장할 수 없는 글자가 있습니다. UTF-8로 저장하면 모든 글자가 그대로 유지됩니다."},
+    {L"Save as UTF-8", L"UTF-8로 저장"},
 
     {L"Untitled", L"제목 없음"},
     {L"Documents (*.rtf, *.txt)", L"문서 (*.rtf, *.txt)"},

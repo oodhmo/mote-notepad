@@ -194,6 +194,44 @@ const wchar_t* HangulUiFontFace()
     return face;
 }
 
+std::wstring WrapAtSpaces(HDC dc, HFONT font, const std::wstring& text, int width)
+{
+    HGDIOBJ oldFont = SelectObject(dc, font);
+    const auto fits = [&](const std::wstring& line) {
+        SIZE size = {};
+        GetTextExtentPoint32W(dc, line.c_str(), static_cast<int>(line.size()), &size);
+        return size.cx <= width;
+    };
+    std::wstring result, line, word;
+    const auto flushWord = [&] {
+        if (word.empty()) return;
+        if (line.empty()) {
+            line = word;
+        } else if (fits(line + L' ' + word)) {
+            line += L' ' + word;
+        } else {
+            result += line + L'\n';
+            line = word;
+        }
+        word.clear();
+    };
+    for (const wchar_t ch : text) {
+        if (ch == L' ') {
+            flushWord();
+        } else if (ch == L'\n') {
+            flushWord();
+            result += line + L'\n';
+            line.clear();
+        } else {
+            word += ch;
+        }
+    }
+    flushWord();
+    result += line;
+    SelectObject(dc, oldFont);
+    return result;
+}
+
 void FillRoundRect(Gdiplus::Graphics& graphics, const RECT& rect, COLORREF color, int radius)
 {
     const auto left = static_cast<Gdiplus::REAL>(rect.left);
