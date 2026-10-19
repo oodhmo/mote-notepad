@@ -334,6 +334,11 @@ void ApplyEditorTheme(HWND editor, COLORREF previousText)
 void SetEditorDpi(HWND editor, UINT dpi)
 {
     g_dpi = dpi;
+    // RichEdit는 DPI 변경 알림을 받기 전까지 주 모니터(시스템) DPI로 글자를 그린다.
+    // 배율이 다른 보조 모니터에서 시작하면 글자가 그만큼 크거나 작게 나오므로 직접 알려 준다.
+    // (모니터를 옮길 때 시스템이 자식 창에 보내는 순서 그대로 보낸다)
+    SendMessageW(editor, WM_DPICHANGED_BEFOREPARENT, 0, 0);
+    SendMessageW(editor, WM_DPICHANGED_AFTERPARENT, 0, 0);
     ApplyPadding(editor);
 }
 
