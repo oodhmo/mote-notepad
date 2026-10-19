@@ -22,6 +22,9 @@ void OpenTopBarMenu(HWND bar, int index);
 // 선택 영역 서식을 버튼 상태(B/I/U 활성, 색 표시)에 반영한다
 void SetTopBarFormatState(HWND bar, const FormatState& state);
 
+// Ctrl+F1~F3(slot 0~2)에 지정된 색. 색상 팝업에서 색을 우클릭해 바꿀 수 있다.
+COLORREF ShortcutColor(int slot);
+
 // 색상 팝업이 열려 있는지 (메인 창이 활성 모양을 유지하는 데 사용)
 bool IsColorPopupOpen();
 

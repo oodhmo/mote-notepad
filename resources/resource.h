@@ -36,6 +36,9 @@
 #define IDM_FORMAT_ITALIC       1202
 #define IDM_FORMAT_UNDERLINE    1203
 #define IDM_FORMAT_CUSTOMCOLOR  1204
+#define IDM_FORMAT_COLOR_SLOT1  1211  // Ctrl+F1 ~ F3: 색 단축키 (SLOT1 + 0~2)
+#define IDM_FORMAT_COLOR_SLOT2  1212
+#define IDM_FORMAT_COLOR_SLOT3  1213
 
 // 상단 바 접기/펼치기 (Ctrl+\)
 #define IDM_VIEW_TOOLBAR        1301
@@ -43,3 +46,9 @@
 // 상단 바의 메뉴 버튼을 키보드로 여는 명령 (Alt+F / Alt+E)
 #define IDM_OPEN_FILE_MENU  1901
 #define IDM_OPEN_EDIT_MENU  1902
+#define IDM_OPEN_HELP_MENU  1903
+
+// 도움말 (F1)
+#define IDM_HELP_SHORTCUTS  1401
+#define IDM_HELP_ABOUT      1402
+#define IDM_HELP_REGISTER   1403  // 연결 프로그램 등록/제거 (문구는 상태에 따라 바뀐다)

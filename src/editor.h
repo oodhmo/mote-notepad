@@ -5,6 +5,10 @@
 // TOM의 자동 색(tomAutoColor)과 같은 값. ReplaceTextColor의 인자로 사용한다.
 constexpr long kAutoColor = -9999997;
 
+// 파일을 본문에 끌어다 놓으면 부모 창에 보낸다.
+// lParam: new로 만든 std::wstring* (파일 경로). 받는 쪽에서 delete한다.
+constexpr UINT WM_MOTE_OPENFILE = WM_APP + 3;
+
 // RichEdit 컨트롤을 만들고 기본 설정을 적용한다.
 // contextMenu: 우클릭 시 보여줄 팝업 메뉴 (명령은 parent로 전달된다)
 HWND CreateEditor(HWND parent, HINSTANCE instance, HMENU contextMenu);

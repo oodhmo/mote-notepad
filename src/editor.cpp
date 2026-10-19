@@ -5,6 +5,7 @@
 #include <windowsx.h>
 #include <richedit.h>
 #include <richole.h>
+#include <shellapi.h>
 #include <tom.h>
 #include <algorithm>
 
@@ -34,6 +35,8 @@ UINT g_dpi = 96;
 HMENU g_contextMenu = nullptr;
 ITextDocument* g_textDoc = nullptr;  // 문서 단위 작업(색 교체, 줄간격)에 사용하는 TOM 인터페이스
 bool g_internalDrag = false;          // 이 에디터 안에서 시작된 드래그인지
+bool g_fileDragOver = false;          // 탐색기에서 파일을 끌어 본문 위에 올려 둔 상태인지
+HWND g_editor = nullptr;
 
 // 클립보드 내용이 이 프로세스(=mote)에서 복사된 것인지 확인한다.
 // RichEdit는 OLE 클립보드를 쓰므로 소유 창은 같은 프로세스의 OLE 숨김 창이다.
@@ -50,6 +53,24 @@ bool DataObjectHas(IDataObject* data, CLIPFORMAT format)
 {
     FORMATETC fe = {format, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
     return data && data->QueryGetData(&fe) == S_OK;
+}
+
+// 탐색기에서 끌어온 파일 목록(CF_HDROP)의 첫 번째 경로
+std::wstring FirstDroppedFile(IDataObject* data)
+{
+    FORMATETC fe = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium = {};
+    if (FAILED(data->GetData(&fe, &medium))) return {};
+    std::wstring path;
+    const auto drop = static_cast<HDROP>(medium.hGlobal);
+    const UINT length = DragQueryFileW(drop, 0, nullptr, 0);
+    if (length > 0) {
+        path.resize(length + 1);
+        DragQueryFileW(drop, 0, path.data(), length + 1);
+        path.resize(length);
+    }
+    ReleaseStgMedium(&medium);
+    return path;
 }
 
 // 붙여넣기/드롭/개체 삽입 정책을 결정하는 RichEdit 콜백.
@@ -80,7 +101,13 @@ public:
     STDMETHODIMP DeleteObject(LPOLEOBJECT) override { return S_OK; }
     STDMETHODIMP ContextSensitiveHelp(BOOL) override { return E_NOTIMPL; }
     STDMETHODIMP GetContextMenu(WORD, LPOLEOBJECT, CHARRANGE*, HMENU*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetDragDropEffect(BOOL, DWORD, LPDWORD) override { return S_OK; }
+    STDMETHODIMP GetDragDropEffect(BOOL drag, DWORD, LPDWORD effect) override
+    {
+        // 파일은 본문에 넣지 않고 열기만 하므로 항상 "복사"로 표시한다.
+        // ("이동"으로 알리면 탐색기가 원본 파일을 지울 수 있다)
+        if (!drag && g_fileDragOver && effect) *effect = (*effect & DROPEFFECT_COPY) ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        return S_OK;
+    }
 
     STDMETHODIMP GetClipboardData(CHARRANGE*, DWORD reco, LPDATAOBJECT*) override
     {
@@ -92,6 +119,21 @@ public:
     STDMETHODIMP QueryAcceptData(LPDATAOBJECT data, CLIPFORMAT* format, DWORD reco, BOOL really, HGLOBAL) override
     {
         if (*format != 0) return S_OK;  // 특정 형식을 명시한 붙여넣기는 그대로 둔다
+
+        // 탐색기에서 끌어온 파일: 끄는 동안은 받아들이고, 놓으면 부모 창에 열기를 맡긴다.
+        // 본문에는 아무것도 넣지 않도록 실제 드롭은 거절한다.
+        g_fileDragOver = reco == RECO_DROP && DataObjectHas(data, CF_HDROP);
+        if (g_fileDragOver) {
+            if (!really) return S_OK;
+            g_fileDragOver = false;
+            std::wstring path = FirstDroppedFile(data);
+            if (!path.empty()) {
+                // 드롭 처리(OLE 모달 루프)가 끝난 뒤에 열도록 보낸다. 저장 확인창이 뜰 수 있기 때문이다.
+                auto* message = new std::wstring(std::move(path));
+                if (!PostMessageW(GetParent(g_editor), WM_MOTE_OPENFILE, 0, reinterpret_cast<LPARAM>(message))) delete message;
+            }
+            return E_FAIL;
+        }
 
         static const CLIPFORMAT rtfFormat = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CF_RTF));
         const bool internal = (reco == RECO_DROP) ? g_internalDrag : IsClipboardFromThisProcess();
@@ -281,6 +323,7 @@ HWND CreateEditor(HWND parent, HINSTANCE instance, HMENU contextMenu)
             ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL,
         0, 0, 0, 0, parent, nullptr, instance, nullptr);
     if (!editor) return nullptr;
+    g_editor = editor;
 
     // 텍스트 모드는 문서가 비어 있을 때만 바꿀 수 있으므로 가장 먼저 설정한다
     SendMessageW(editor, EM_SETTEXTMODE, TM_RICHTEXT | TM_MULTILEVELUNDO | TM_MULTICODEPAGE, 0);

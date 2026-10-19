@@ -9,6 +9,7 @@ constexpr wchar_t kSettingsKey[] = L"Software\\mote";
 constexpr wchar_t kToolbarCollapsedValue[] = L"ToolbarCollapsed";
 constexpr wchar_t kRecentFilesValue[] = L"RecentFiles";
 constexpr wchar_t kWindowPlacementValue[] = L"WindowPlacement";
+constexpr wchar_t kColorShortcutsValue[] = L"ColorShortcuts";
 
 bool SamePath(const std::wstring& a, const std::wstring& b)
 {
@@ -61,6 +62,27 @@ bool LoadWindowPlacement(WINDOWPLACEMENT& placement)
 void SaveWindowPlacement(const WINDOWPLACEMENT& placement)
 {
     RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kWindowPlacementValue, REG_BINARY, &placement, sizeof(placement));
+}
+
+ColorShortcuts LoadColorShortcuts(int paletteCount)
+{
+    ColorShortcuts shortcuts = {2, 6, 5};  // 빨강, 파랑, 초록 (topbar.cpp의 kPalette 순서)
+    BYTE value[kColorShortcutCount] = {};
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kColorShortcutsValue, RRF_RT_REG_BINARY,
+                     nullptr, value, &size) == ERROR_SUCCESS && size == sizeof(value)) {
+        for (int i = 0; i < kColorShortcutCount; ++i) {
+            if (value[i] < paletteCount) shortcuts[i] = value[i];
+        }
+    }
+    return shortcuts;
+}
+
+void SaveColorShortcuts(const ColorShortcuts& shortcuts)
+{
+    BYTE value[kColorShortcutCount] = {};
+    for (int i = 0; i < kColorShortcutCount; ++i) value[i] = static_cast<BYTE>(shortcuts[i]);
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kColorShortcutsValue, REG_BINARY, value, sizeof(value));
 }
 
 std::vector<std::wstring> LoadRecentFiles()

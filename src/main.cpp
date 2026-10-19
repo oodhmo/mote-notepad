@@ -12,6 +12,7 @@ using std::max;
 using std::min;
 }  // namespace Gdiplus
 #include <gdiplus.h>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,8 @@ using std::min;
 #include "editor.h"
 #include "file_io.h"
 #include "findbar.h"
+#include "help.h"
+#include "registration.h"
 #include "settings.h"
 #include "theme.h"
 #include "topbar.h"
@@ -31,7 +34,7 @@ constexpr wchar_t kWindowClass[] = L"MoteMainWindow";
 constexpr wchar_t kAppName[] = L"mote";
 constexpr int kDefaultWidth = 960;   // 96 DPI 기준 초기 창 크기
 constexpr int kDefaultHeight = 680;
-constexpr int kMinWidth = 360;
+constexpr int kMinWidth = 400;  // 상단 바의 메뉴 3개와 서식 버튼이 겹치지 않는 폭
 constexpr int kMinHeight = 240;
 
 // 상단 바 접기
@@ -166,6 +169,11 @@ int RestoreWindowState(HWND window, int showCommand)
     // 이미 그 모니터로 옮겨진 뒤 한 번 더 적용해 저장된 크기 그대로 맞춘다.
     // (모니터가 빠져 화면 밖이면 시스템이 보이는 위치로 옮겨 준다)
     SetWindowPlacement(window, &placement);
+    // 최소 크기가 커졌을 수 있으므로(이전 버전에서 저장한 값) 그 모니터의 배율 기준 최소 크기보다 작지 않게 한다
+    const UINT dpi = GetDpiForWindow(window);
+    RECT& rc = placement.rcNormalPosition;
+    rc.right = std::max(rc.right, rc.left + Scale(kMinWidth, dpi));
+    rc.bottom = std::max(rc.bottom, rc.top + Scale(kMinHeight, dpi));
     SetWindowPlacement(window, &placement);
     // 바로 가기의 "최소화/최대화 상태로 실행" 설정은 그대로 따르고, 기본 실행일 때만 최대화를 되살린다
     const bool defaultShow = showCommand == SW_SHOWNORMAL || showCommand == SW_SHOWDEFAULT;
@@ -448,6 +456,15 @@ void OpenRecent(size_t index)
     OpenDocument(recent[index]);
 }
 
+// 탐색기에서 끌어다 놓은 파일을 연다
+void OpenDroppedFile(const std::wstring& path)
+{
+    if (GetFileAttributesW(path.c_str()) & FILE_ATTRIBUTE_DIRECTORY) return;  // 폴더(또는 없는 경로)는 무시한다
+    SetForegroundWindow(g_app.window);  // 저장 확인창이 다른 창 뒤에 숨지 않게 한다
+    if (!ConfirmDiscardChanges()) return;
+    OpenDocument(path);
+}
+
 // ---- 최근 파일 메뉴 ----
 
 // 메뉴가 열릴 때마다 레지스트리의 목록으로 다시 채운다 (다른 mote 창에서 연 파일도 보인다)
@@ -514,6 +531,33 @@ void UpdateMenuState(HMENU menu)
         ModifyMenuW(menu, IDM_VIEW_TOOLBAR, MF_BYCOMMAND | MF_STRING, IDM_VIEW_TOOLBAR,
                     Str(g_app.toolbarCollapsed ? StrId::MenuShowToolbar : StrId::MenuHideToolbar));
     }
+    if (GetMenuState(menu, IDM_HELP_REGISTER, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
+        ModifyMenuW(menu, IDM_HELP_REGISTER, MF_BYCOMMAND | MF_STRING, IDM_HELP_REGISTER,
+                    Str(IsOpenWithRegistered() ? StrId::MenuUnregisterOpenWith : StrId::MenuRegisterOpenWith));
+    }
+}
+
+// 도움말 > 연결 프로그램 등록/제거
+void ToggleOpenWithRegistration()
+{
+    if (IsOpenWithRegistered()) {
+        if (AskConfirm(g_app.window, Str(StrId::UnregisterTitle), Str(StrId::UnregisterMessage), Str(StrId::UnregisterButton))) {
+            UnregisterOpenWith();
+        }
+        return;
+    }
+    if (!AskConfirm(g_app.window, Str(StrId::RegisterTitle), Str(StrId::RegisterMessage), Str(StrId::RegisterButton))) return;
+    if (!RegisterOpenWith()) {
+        ShowError(Str(StrId::ErrorRegister), Str(StrId::ErrorUnknown));
+        return;
+    }
+    // 앱이 스스로 기본 앱이 될 수는 없으므로(Windows 정책) 설정 화면으로 안내한다
+    if (AskConfirm(g_app.window, Str(StrId::RegisteredTitle), Str(StrId::RegisteredMessage), Str(StrId::OpenSettingsButton),
+                   Str(StrId::Close))) {
+        const auto opened = reinterpret_cast<INT_PTR>(ShellExecuteW(g_app.window, L"open", L"ms-settings:defaultapps?registeredAppUser=mote",
+                                                                    nullptr, nullptr, SW_SHOWNORMAL));
+        if (opened <= 32) ShellExecuteW(g_app.window, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL);
+    }
 }
 
 void OnCommand(UINT id)
@@ -551,11 +595,19 @@ void OnCommand(UINT id)
     case IDM_FORMAT_ITALIC:      ToggleEffect(CFE_ITALIC); break;
     case IDM_FORMAT_UNDERLINE:   ToggleEffect(CFE_UNDERLINE); break;
     case IDM_FORMAT_CUSTOMCOLOR: ChooseCustomColor(); break;
+    case IDM_FORMAT_COLOR_SLOT1:
+    case IDM_FORMAT_COLOR_SLOT2:
+    case IDM_FORMAT_COLOR_SLOT3: ApplyColor(ShortcutColor(static_cast<int>(id - IDM_FORMAT_COLOR_SLOT1))); break;
 
     case IDM_VIEW_TOOLBAR:   ToggleToolbar(); break;
 
     case IDM_OPEN_FILE_MENU: OpenMenuFromKeyboard(0); break;
     case IDM_OPEN_EDIT_MENU: OpenMenuFromKeyboard(1); break;
+    case IDM_OPEN_HELP_MENU: OpenMenuFromKeyboard(2); break;
+
+    case IDM_HELP_SHORTCUTS: ShowShortcutsHelp(g_app.window); break;
+    case IDM_HELP_ABOUT:     ShowAbout(g_app.window); break;
+    case IDM_HELP_REGISTER:  ToggleOpenWithRegistration(); break;
     }
 }
 
@@ -606,6 +658,7 @@ bool OnCreate(HWND hwnd)
     g_app.findBar = CreateFindBar(hwnd, g_app.instance, g_app.editor);
     if (!g_app.findBar) return false;
     g_app.recentMenu = FindRecentSubmenu();
+    DragAcceptFiles(hwnd, TRUE);  // 본문은 RichEdit의 OLE 드롭으로 따로 받는다 (editor.cpp)
 
     SetEditorDpi(g_app.editor, g_app.dpi);
     g_app.toolbarCollapsed = LoadToolbarCollapsed();
@@ -682,6 +735,23 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MOTE_RELAYOUT:
         LayoutChildren();
         return 0;
+
+    case WM_MOTE_OPENFILE: {
+        // 본문에 파일을 끌어다 놓았을 때 (editor.cpp의 OLE 드롭 처리에서 보낸다)
+        const std::unique_ptr<std::wstring> path(reinterpret_cast<std::wstring*>(lp));
+        if (path) OpenDroppedFile(*path);
+        return 0;
+    }
+
+    case WM_DROPFILES: {
+        // 본문 밖(상단 바, 찾기 바)에 놓았을 때. 여러 파일이면 첫 번째만 연다.
+        const auto drop = reinterpret_cast<HDROP>(wp);
+        std::wstring path(DragQueryFileW(drop, 0, nullptr, 0), L'\0');
+        if (!path.empty()) DragQueryFileW(drop, 0, path.data(), static_cast<UINT>(path.size() + 1));
+        DragFinish(drop);
+        if (!path.empty()) OpenDroppedFile(path);
+        return 0;
+    }
 
     case WM_SETTINGCHANGE:
         // 라이트/다크 앱 모드가 바뀌면 lParam이 "ImmersiveColorSet"인 알림이 온다
@@ -787,6 +857,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     g_app.accelerators = LoadAcceleratorsW(instance, MAKEINTRESOURCEW(IDR_ACCEL));
 
     ShowWindow(window, RestoreWindowState(window, showCommand));
+    RefreshOpenWithPath();  // 연결 프로그램에 등록한 뒤 exe를 옮겼으면 경로를 고친다
     UpdateWindow(window);
 
     // 탐색기에서 파일을 끌어다 놓거나 "연결 프로그램"으로 연 경우

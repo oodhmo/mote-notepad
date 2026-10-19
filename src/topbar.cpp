@@ -1,4 +1,5 @@
 #include "topbar.h"
+#include "settings.h"
 #include "theme.h"
 #include "../resources/resource.h"
 #include "strings.h"
@@ -47,6 +48,8 @@ constexpr int kPopupPadding = 10;
 constexpr int kSwatchCell = 28;
 constexpr int kSwatchSize = 18;
 constexpr int kCustomRowHeight = 30;
+constexpr int kBadgeHeight = 11;       // 색 아래 단축키 표시(F1/F2/F3) 줄
+constexpr int kBadgeFontPx = 10;
 constexpr DWORD kReopenGuardMs = 200;  // 팝업을 닫은 클릭이 곧바로 다시 여는 것을 막는 시간
 
 constexpr int kPaletteCount = 8;
@@ -74,7 +77,7 @@ struct BarItem {
     RECT rect;
 };
 
-enum { kFileItem, kEditItem, kBoldItem, kItalicItem, kUnderlineItem, kColorItem, kCollapseItem, kItemCount };
+enum { kFileItem, kEditItem, kHelpItem, kBoldItem, kItalicItem, kUnderlineItem, kColorItem, kCollapseItem, kItemCount };
 
 struct TopBarState {
     HINSTANCE instance = nullptr;
@@ -90,6 +93,7 @@ struct TopBarState {
     BarItem items[kItemCount] = {
         {ItemKind::Menu, Str(StrId::MenuFile), 0, nullptr, {}},
         {ItemKind::Menu, Str(StrId::MenuEdit), 0, nullptr, {}},
+        {ItemKind::Menu, Str(StrId::MenuHelp), 0, nullptr, {}},
         {ItemKind::Toggle, L"", IDM_FORMAT_BOLD, Str(StrId::TipBold), {}},
         {ItemKind::Toggle, L"", IDM_FORMAT_ITALIC, Str(StrId::TipItalic), {}},
         {ItemKind::Toggle, L"", IDM_FORMAT_UNDERLINE, Str(StrId::TipUnderline), {}},
@@ -106,6 +110,8 @@ struct TopBarState {
 struct PopupState {
     HWND hwnd = nullptr;
     HFONT font = nullptr;
+    HFONT badgeFont = nullptr;
+    ColorShortcuts shortcuts = {};  // Ctrl+F1~F3에 지정된 팔레트 번호 (팝업을 열 때 레지스트리에서 다시 읽는다)
     RECT cells[kPaletteCount + 1] = {};  // 마지막은 Custom color 행
     RECT separator = {};
     int hot = -1;          // 마우스/키보드로 가리키는 항목
@@ -163,15 +169,31 @@ bool IsSelectedSwatch(int index)
     return !g_bar.format.colorMixed && g_bar.format.color == PaletteColor(index);
 }
 
+// 팔레트 index번 색이 지정된 단축키 슬롯 (없으면 -1)
+int ShortcutSlotOf(int index)
+{
+    for (int slot = 0; slot < kColorShortcutCount; ++slot) {
+        if (g_popup.shortcuts[slot] == index) return slot;
+    }
+    return -1;
+}
+
+// 원형 견본이 들어가는 칸의 윗부분 (아래에는 단축키 표시가 붙는다)
+RECT SwatchArea(const RECT& cell, UINT dpi)
+{
+    return {cell.left, cell.top, cell.right, cell.bottom - Scale(kBadgeHeight, dpi)};
+}
+
 SIZE LayoutPopup(UINT dpi)
 {
     const int pad = Scale(kPopupPadding, dpi);
     const int cell = Scale(kSwatchCell, dpi);
+    const int cellHeight = cell + Scale(kBadgeHeight, dpi);
     for (int i = 0; i < kPaletteCount; ++i) {
-        g_popup.cells[i] = {pad + i * cell, pad, pad + (i + 1) * cell, pad + cell};
+        g_popup.cells[i] = {pad + i * cell, pad, pad + (i + 1) * cell, pad + cellHeight};
     }
     const int width = pad * 2 + kPaletteCount * cell;
-    const int separatorY = pad + cell + Scale(6, dpi);
+    const int separatorY = pad + cellHeight + Scale(6, dpi);
     g_popup.separator = {pad, separatorY, width - pad, separatorY + 1};
     const int rowTop = separatorY + 1 + Scale(4, dpi);
     const int inset = Scale(4, dpi);
@@ -205,13 +227,14 @@ void PaintPopup(HWND hwnd)
                 FillRoundRect(graphics, inner, theme.hover, Scale(kCornerRadius, dpi));
             }
             const COLORREF color = PaletteColor(i);
+            const RECT swatch = SwatchArea(cell, dpi);
             if (IsSelectedSwatch(i)) {
                 // 현재 색은 바깥 고리로 표시한다
                 Gdiplus::Pen ring(ToGdiplus(color), static_cast<Gdiplus::REAL>(Scale(2, dpi)));
-                graphics.DrawEllipse(&ring, CircleRect(cell, Scale(kSwatchSize + 6, dpi)));
+                graphics.DrawEllipse(&ring, CircleRect(swatch, Scale(kSwatchSize + 6, dpi)));
             }
             Gdiplus::SolidBrush brush(ToGdiplus(color));
-            graphics.FillEllipse(&brush, CircleRect(cell, Scale(kSwatchSize, dpi)));
+            graphics.FillEllipse(&brush, CircleRect(swatch, Scale(kSwatchSize, dpi)));
         }
 
         const RECT& row = g_popup.cells[kCustomItem];
@@ -228,10 +251,23 @@ void PaintPopup(HWND hwnd)
         }
     }
 
+    SetBkMode(paint.dc, TRANSPARENT);
+
+    // 단축키가 지정된 색 아래에 "F1"처럼 작게 표시한다
+    HGDIOBJ oldFont = SelectObject(paint.dc, g_popup.badgeFont);
+    SetTextColor(paint.dc, theme.secondaryText);
+    for (int i = 0; i < kPaletteCount; ++i) {
+        const int slot = ShortcutSlotOf(i);
+        if (slot < 0) continue;
+        const wchar_t badge[] = {L'F', static_cast<wchar_t>(L'1' + slot), L'\0'};
+        RECT badgeRect = g_popup.cells[i];
+        badgeRect.top = badgeRect.bottom - Scale(kBadgeHeight + 2, dpi);
+        DrawTextW(paint.dc, badge, -1, &badgeRect, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+    }
+
     const RECT& row = g_popup.cells[kCustomItem];
     RECT text = {row.left + Scale(6 + kSwatchCell + 2, dpi), row.top, row.right, row.bottom};
-    HGDIOBJ oldFont = SelectObject(paint.dc, g_popup.font);
-    SetBkMode(paint.dc, TRANSPARENT);
+    SelectObject(paint.dc, g_popup.font);
     SetTextColor(paint.dc, theme.text);
     DrawTextW(paint.dc, Str(StrId::CustomColor), -1, &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(paint.dc, oldFont);
@@ -268,6 +304,32 @@ void ChoosePopupItem(int index)
     } else {
         PostMessageW(g_bar.owner, WM_MOTE_SETCOLOR, 0, static_cast<LPARAM>(color));
     }
+}
+
+// 팔레트 index번 색을 단축키 슬롯에 지정하는 작은 메뉴를 연다 (우클릭, Shift+F10, 메뉴 키)
+void ShowShortcutMenu(int index, POINT screenPt)
+{
+    if (index < 0 || index >= kPaletteCount) return;
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+    for (int slot = 0; slot < kColorShortcutCount; ++slot) {
+        wchar_t label[64];
+        swprintf_s(label, Str(StrId::AssignColorShortcut), slot + 1);
+        const UINT checked = g_popup.shortcuts[slot] == index ? MF_CHECKED : MF_UNCHECKED;
+        AppendMenuW(menu, MF_STRING | checked, static_cast<UINT_PTR>(slot + 1), label);
+    }
+    const int chosen = static_cast<int>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN,
+                                                         screenPt.x, screenPt.y, g_popup.hwnd, nullptr));
+    DestroyMenu(menu);
+    if (chosen <= 0 || !g_popup.hwnd) return;
+
+    // 이 색이 이미 다른 슬롯에 있으면 두 슬롯의 색을 맞바꾼다 (같은 색이 두 단축키에 겹치지 않게)
+    const int slot = chosen - 1;
+    const int previousSlot = ShortcutSlotOf(index);
+    if (previousSlot >= 0) g_popup.shortcuts[previousSlot] = g_popup.shortcuts[slot];
+    g_popup.shortcuts[slot] = index;
+    SaveColorShortcuts(g_popup.shortcuts);
+    InvalidateRect(g_popup.hwnd, nullptr, FALSE);
 }
 
 // 방향키로 항목 사이를 이동한다 (팔레트 한 줄 + 아래 Custom color 행)
@@ -331,6 +393,23 @@ LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         ChoosePopupItem(HitTestRects(g_popup.cells, kCustomItem + 1, {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}));
         return 0;
 
+    case WM_CONTEXTMENU: {
+        // 우클릭이면 커서 위치의 색, Shift+F10/메뉴 키면(lParam = -1) 키보드로 가리킨 색
+        POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        int index = g_popup.hot;
+        if (lp == -1) {
+            if (index < 0 || index >= kPaletteCount) return 0;
+            pt = {g_popup.cells[index].left, g_popup.cells[index].bottom};
+            ClientToScreen(hwnd, &pt);
+        } else {
+            POINT client = pt;
+            ScreenToClient(hwnd, &client);
+            index = HitTestRects(g_popup.cells, kPaletteCount, client);
+        }
+        ShowShortcutMenu(index, pt);
+        return 0;
+    }
+
     case WM_KEYDOWN:
         switch (wp) {
         case VK_ESCAPE:
@@ -358,6 +437,10 @@ LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             DeleteObject(g_popup.font);
             g_popup.font = nullptr;
         }
+        if (g_popup.badgeFont) {
+            DeleteObject(g_popup.badgeFont);
+            g_popup.badgeFont = nullptr;
+        }
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -380,12 +463,16 @@ void ShowColorPopup(const RECT& anchor)
     g_popup.hot = -1;
     g_popup.trackingLeave = false;
     g_popup.lostToOtherApp = false;
+    g_popup.shortcuts = LoadColorShortcuts(kPaletteCount);  // 다른 mote 창에서 바꾼 지정도 반영한다
     g_popup.font = CreateUiFont(kMenuFontTenths, dpi);
+    g_popup.badgeFont = CreateUiFontPx(kBadgeFontPx, dpi);
     g_popup.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, kPopupClass, L"", WS_POPUP,
                                    x, y, size.cx, size.cy, g_bar.owner, nullptr, g_bar.instance, nullptr);
     if (!g_popup.hwnd) {
         DeleteObject(g_popup.font);
+        DeleteObject(g_popup.badgeFont);
         g_popup.font = nullptr;
+        g_popup.badgeFont = nullptr;
         return;
     }
 
@@ -430,7 +517,7 @@ void LayoutItems()
     HDC dc = GetDC(g_bar.hwnd);
     HGDIOBJ oldFont = SelectObject(dc, g_bar.menuFont);
     int x = Scale(kEdgeMargin, dpi);
-    for (int i : {kFileItem, kEditItem}) {
+    for (int i : {kFileItem, kEditItem, kHelpItem}) {
         BarItem& item = g_bar.items[i];
         SIZE size = {};
         GetTextExtentPoint32W(dc, item.label, lstrlenW(item.label), &size);
@@ -551,7 +638,7 @@ void SetHot(int index)
 
 void OpenMenu(int index, bool fromKeyboard)
 {
-    if (index != kFileItem && index != kEditItem) return;
+    if (index != kFileItem && index != kEditItem && index != kHelpItem) return;
     HMENU popup = GetSubMenu(g_bar.menus, index);
     if (!popup) return;
 
@@ -896,4 +983,10 @@ int ExpandButtonMargin(UINT dpi)
 int ExpandButtonTop(UINT dpi)
 {
     return (Scale(kBarHeight, dpi) - Scale(kButtonHeight, dpi)) / 2;
+}
+
+COLORREF ShortcutColor(int slot)
+{
+    if (slot < 0 || slot >= kColorShortcutCount) return DefaultTextColor();
+    return PaletteColor(LoadColorShortcuts(kPaletteCount)[slot]);
 }

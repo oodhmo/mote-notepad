@@ -41,6 +41,14 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "Hide &Toolbar\tCtrl+\\",  IDM_VIEW_TOOLBAR
     END
+    POPUP "Help"
+    BEGIN
+        MENUITEM "&Shortcuts and Features\tF1", IDM_HELP_SHORTCUTS
+        MENUITEM SEPARATOR
+        MENUITEM "&About mote",             IDM_HELP_ABOUT
+        MENUITEM SEPARATOR
+        MENUITEM "Add mote to ""Open with""...", IDM_HELP_REGISTER
+    END
 END
 
 // Windows 표시 언어가 한국어일 때 쓰는 같은 구조의 메뉴 (항목 순서와 ID가 위와 같아야 한다)
@@ -78,6 +86,14 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "툴바 숨기기(&T)\tCtrl+\\",        IDM_VIEW_TOOLBAR
     END
+    POPUP "도움말"
+    BEGIN
+        MENUITEM "단축키 및 기능(&K)\tF1",          IDM_HELP_SHORTCUTS
+        MENUITEM SEPARATOR
+        MENUITEM "mote 정보(&A)",                   IDM_HELP_ABOUT
+        MENUITEM SEPARATOR
+        MENUITEM "연결 프로그램에 mote 등록...",      IDM_HELP_REGISTER
+    END
 END
 
 // 편집 단축키(Ctrl+C/V/X/Z/Y/A)는 RichEdit 기본 처리에 맡긴다.
@@ -92,6 +108,9 @@ BEGIN
     "B",    IDM_FORMAT_BOLD,    VIRTKEY, CONTROL
     "I",    IDM_FORMAT_ITALIC,  VIRTKEY, CONTROL
     "U",    IDM_FORMAT_UNDERLINE, VIRTKEY, CONTROL
+    VK_F1,  IDM_FORMAT_COLOR_SLOT1, VIRTKEY, CONTROL
+    VK_F2,  IDM_FORMAT_COLOR_SLOT2, VIRTKEY, CONTROL
+    VK_F3,  IDM_FORMAT_COLOR_SLOT3, VIRTKEY, CONTROL
     "F",    IDM_EDIT_FIND,      VIRTKEY, CONTROL
     "H",    IDM_EDIT_REPLACE,   VIRTKEY, CONTROL
     VK_F3,  IDM_EDIT_FINDNEXT,  VIRTKEY
@@ -99,6 +118,8 @@ BEGIN
     VK_OEM_5, IDM_VIEW_TOOLBAR, VIRTKEY, CONTROL
     "F",    IDM_OPEN_FILE_MENU, VIRTKEY, ALT
     "E",    IDM_OPEN_EDIT_MENU, VIRTKEY, ALT
+    "H",    IDM_OPEN_HELP_MENU, VIRTKEY, ALT
+    VK_F1,  IDM_HELP_SHORTCUTS, VIRTKEY
 END
 
 VS_VERSION_INFO VERSIONINFO

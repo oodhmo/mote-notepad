@@ -21,6 +21,8 @@ add_executable(mote WIN32
     src/findbar.cpp
     src/settings.cpp
     src/confirm.cpp
+    src/help.cpp
+    src/registration.cpp
     src/strings.cpp
     resources/app.rc
     resources/app.manifest
