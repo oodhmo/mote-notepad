@@ -61,6 +61,18 @@ enum class PreferredAppMode { Default, AllowDark, ForceDark, ForceLight };
 using SetPreferredAppModeFn = PreferredAppMode(WINAPI*)(PreferredAppMode);
 using FlushMenuThemesFn = void(WINAPI*)();
 
+// Windows 빌드 번호. GetVersionEx는 호환성 설정의 영향을 받아 ntdll의 RtlGetVersion으로 읽는다.
+DWORD WindowsBuild()
+{
+    using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+    static const DWORD build = [] {
+        OSVERSIONINFOW info = {sizeof(info)};
+        const auto getVersion = reinterpret_cast<RtlGetVersionFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion"));
+        return (getVersion && getVersion(&info) == 0) ? info.dwBuildNumber : 0ul;
+    }();
+    return build;
+}
+
 int CALLBACK FontExistsProc(const LOGFONTW*, const TEXTMETRICW*, DWORD, LPARAM found)
 {
     *reinterpret_cast<bool*>(found) = true;
@@ -107,6 +119,9 @@ bool UpdateThemeFromSystem()
 
 void ApplyMenuTheme()
 {
+    // 서수 135가 SetPreferredAppMode인 것은 Windows 10 1903(빌드 18362)부터다.
+    // 그 이전에는 같은 서수가 다른 함수라 부르면 안 된다 (메뉴만 라이트로 남는다).
+    if (WindowsBuild() < 18362) return;
     static HMODULE uxtheme = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!uxtheme) return;
     static auto setMode = reinterpret_cast<SetPreferredAppModeFn>(GetProcAddress(uxtheme, MAKEINTRESOURCEA(135)));
@@ -120,8 +135,12 @@ void ApplyTitleBarTheme(HWND window)
 {
     const ThemeColors& theme = CurrentTheme();
     const BOOL dark = g_dark;
-    // 다크 모드 제목 표시줄(Windows 10 2004 이상). 최소화/최대화/닫기 버튼 색도 함께 바뀐다.
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+    // 다크 모드 제목 표시줄(Windows 10 1809 이상). 최소화/최대화/닫기 버튼 색도 함께 바뀐다.
+    if (FAILED(DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark)))) {
+        // Windows 10 1809~1909는 같은 기능이 문서화 전 번호(19)로 있다
+        constexpr DWORD kImmersiveDarkModeBefore2004 = 19;
+        DwmSetWindowAttribute(window, kImmersiveDarkModeBefore2004, &dark, sizeof(dark));
+    }
     // Windows 11: 제목 표시줄을 본문과 같은 색으로 칠해 상단 바와 하나로 이어 보이게 한다
     DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR, &theme.windowBg, sizeof(theme.windowBg));
     DwmSetWindowAttribute(window, DWMWA_TEXT_COLOR, &theme.text, sizeof(theme.text));

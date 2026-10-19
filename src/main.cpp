@@ -596,6 +596,9 @@ LRESULT CALLBACK MainWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         SetEditorDpi(g_app.editor, g_app.dpi);
         SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                      suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        // 크기가 바뀔 때 시스템이 이전 배율의 화면을 그대로 복사해 두는데, RichEdit는 본문 영역만 다시 그려
+        // 여백(EM_SETRECT 바깥)에 이전 글자 조각이 남는다. 창 전체를 다시 그리게 한다.
+        RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         return 0;
     }
 
