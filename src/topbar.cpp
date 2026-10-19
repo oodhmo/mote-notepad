@@ -369,6 +369,11 @@ LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
 
     case WM_CLOSE: {
+        // 이미 닫혀 다른 팝업으로 바뀐 뒤에 도착한 WM_CLOSE면 이 창만 없앤다
+        if (hwnd != g_popup.hwnd) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
         const bool otherApp = g_popup.lostToOtherApp;
         CloseColorPopup();
         // 메인 창이 계속 활성 모양이었으므로, 다른 앱으로 넘어갔다면 비활성 모양으로 다시 그린다
@@ -433,6 +438,7 @@ LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
 
     case WM_DESTROY:
+        if (hwnd != g_popup.hwnd) return 0;  // 글꼴은 지금 떠 있는 팝업의 것이다
         if (g_popup.font) {
             DeleteObject(g_popup.font);
             g_popup.font = nullptr;
@@ -448,6 +454,7 @@ LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
 void ShowColorPopup(const RECT& anchor)
 {
+    if (g_popup.hwnd) return;  // 팝업은 하나만 띄운다
     const UINT dpi = g_bar.dpi;
     const SIZE size = LayoutPopup(dpi);
 
@@ -686,7 +693,12 @@ void OnBarButtonDown(int index)
         InvalidateRect(g_bar.hwnd, nullptr, FALSE);
         break;
     case ItemKind::Color: {
-        // 열린 팝업을 닫으려고 색 버튼을 다시 누른 경우에는 다시 열지 않는다
+        // 팝업이 열려 있으면 닫기만 한다. 비활성화로 게시된 WM_CLOSE보다 이 클릭이 먼저 처리될 수 있다.
+        if (g_popup.hwnd) {
+            CloseColorPopup();
+            break;
+        }
+        // 팝업이 먼저 닫힌 뒤에 도착한, 닫으려고 누른 클릭이면 다시 열지 않는다
         if (GetTickCount() - g_bar.popupClosedTick < kReopenGuardMs) break;
         RECT anchor = g_bar.items[kColorItem].rect;
         MapWindowPoints(g_bar.hwnd, nullptr, reinterpret_cast<POINT*>(&anchor), 2);
