@@ -2,6 +2,7 @@
 #include "strings.h"
 #include "theme.h"
 #include "topbar.h"
+#include "../resources/version.h"
 
 #include <dwmapi.h>
 #include <shellapi.h>
@@ -185,22 +186,10 @@ COLORREF LinkColor()
     return IsDarkTheme() ? RGB(0x6A, 0xB0, 0xDE) : RGB(0x33, 0x7E, 0xA9);
 }
 
-// 실행 파일의 버전 리소스에서 "0.1.0" 형식의 버전을 읽는다 (app.rc의 FILEVERSION)
+// resources/version.h의 버전 ("1.0.0", 베타면 "1.0.0-beta.1")
 std::wstring AppVersion()
 {
-    HRSRC resource = FindResourceW(nullptr, MAKEINTRESOURCEW(VS_VERSION_INFO), RT_VERSION);
-    HGLOBAL loaded = resource ? LoadResource(nullptr, resource) : nullptr;
-    const auto* data = static_cast<const BYTE*>(loaded ? LockResource(loaded) : nullptr);
-    if (!data) return {};
-    const DWORD size = SizeofResource(nullptr, resource);
-    // VS_FIXEDFILEINFO는 4바이트 경계에 놓이고 0xFEEF04BD 서명으로 시작한다
-    for (DWORD offset = 0; offset + sizeof(VS_FIXEDFILEINFO) <= size; offset += 4) {
-        const auto* info = reinterpret_cast<const VS_FIXEDFILEINFO*>(data + offset);
-        if (info->dwSignature != 0xFEEF04BD) continue;
-        return std::to_wstring(HIWORD(info->dwFileVersionMS)) + L"." + std::to_wstring(LOWORD(info->dwFileVersionMS)) +
-               L"." + std::to_wstring(HIWORD(info->dwFileVersionLS));
-    }
-    return {};
+    return L"" MOTE_VERSION_STR;
 }
 
 // 닫기 버튼을 오른쪽 아래에 놓고 창 높이를 돌려준다
