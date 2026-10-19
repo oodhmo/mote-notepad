@@ -18,6 +18,7 @@ Windows 메모장처럼 단순하게 쓰면서, 강조하고 싶은 부분에는
 - **편의 기능**
   - 최근 파일 목록
   - 파일 끌어다 놓기로 열기
+  - "연결 프로그램" 목록에 등록 (도움말 메뉴)
   - 새 창(별도 프로세스)
   - 마지막 창 위치와 크기 기억
   - 툴바 접기
@@ -112,3 +113,28 @@ cmake --build --preset release
 ```
 
 결과물은 `build\Release\mote.exe`입니다. CRT를 정적으로 링크하므로 다른 PC에서도 단독으로 실행됩니다.
+
+## 버전과 릴리스
+
+버전은 `MAJOR.MINOR.PATCH` 형식을 따릅니다.
+
+| 바뀐 내용 | 올리는 자리 | 예 |
+|---|---|---|
+| 버그 수정만 (`Fix:`) | PATCH | 1.0.0 → 1.0.1 |
+| 기능 추가 (`Feat:`) | MINOR (PATCH는 0으로) | 1.0.1 → 1.1.0 |
+| 이전 버전과 호환되지 않는 변경 (설정·저장 형식 등) | MAJOR | 1.1.0 → 2.0.0 |
+
+문서(`Docs:`)나 정리(`Chore:`)만 바뀐 경우에는 릴리스하지 않습니다.
+
+릴리스 순서는 다음과 같습니다.
+1. `resources/version.h`의 숫자와 문자열을 올리고 `Chore: 버전 x.y.z`로 커밋합니다. 버전은 이 파일에서만 바꿉니다.
+2. Release로 빌드하고 **도움말 > 정보**에서 버전을 확인합니다.
+3. 태그를 붙여 푸시합니다.
+   ```powershell
+   git tag vx.y.z
+   git push origin main --tags
+   ```
+4. GitHub 릴리스를 만들고 `mote.exe`를 올립니다. 노트에는 지난 태그 이후의 기능 추가와 수정 내용을 적습니다.
+   ```powershell
+   gh release create vx.y.z build/Release/mote.exe --title "mote x.y.z" --notes "..."
+   ```
