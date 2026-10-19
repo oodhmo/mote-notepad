@@ -1,6 +1,7 @@
 #include "findbar.h"
 #include "editor.h"
 #include "theme.h"
+#include "strings.h"
 
 #include <commctrl.h>
 #include <windowsx.h>
@@ -74,11 +75,11 @@ struct FindBarState {
     RECT replaceField = {};
     RECT statusRect = {};
     Button buttons[kButtonCount] = {
-        {kIconUp, true, L"이전 찾기 (Shift+F3)", {}},
-        {kIconDown, true, L"다음 찾기 (F3)", {}},
-        {kIconClose, true, L"닫기 (Esc)", {}},
-        {L"Replace", false, L"바꾸기 (Enter)", {}},
-        {L"Replace All", false, L"모두 바꾸기 (Ctrl+Alt+Enter)", {}},
+        {kIconUp, true, Str(StrId::TipFindPrev), {}},
+        {kIconDown, true, Str(StrId::TipFindNext), {}},
+        {kIconClose, true, Str(StrId::TipCloseFind), {}},
+        {Str(StrId::ReplaceButton), false, Str(StrId::TipReplace), {}},
+        {Str(StrId::ReplaceAllButton), false, Str(StrId::TipReplaceAll), {}},
     };
     int hot = -1;
     int pressed = -1;
@@ -105,14 +106,22 @@ bool IsNotFound()
     return g_find.hasCount && g_find.count.total == 0;
 }
 
-// "2/5", 선택이 일치 항목 위에 없으면 "5개", 너무 많으면 "9999+"
+// "%d"가 하나 들어 있는 형식 문자열에 숫자를 넣는다 ("5개", "5 found")
+std::wstring Format(const wchar_t* format, int value)
+{
+    wchar_t buffer[64];
+    swprintf_s(buffer, format, value);
+    return buffer;
+}
+
+// "2/5", 선택이 일치 항목 위에 없으면 "5개"(영어는 "5 found"), 너무 많으면 "9999+"
 std::wstring CountText()
 {
     if (!g_find.hasCount) return {};
     const MatchCount& c = g_find.count;
     if (c.capped) return std::to_wstring(kMaxCount) + L"+";
     if (c.total == 0) return L"0/0";
-    if (c.current == 0) return std::to_wstring(c.total) + L"개";
+    if (c.current == 0) return Format(Str(StrId::MatchCountFormat), c.total);
     return std::to_wstring(c.current) + L"/" + std::to_wstring(c.total);
 }
 
@@ -168,7 +177,7 @@ void DoReplaceAll()
         SelfChangeScope scope;
         replaced = ReplaceAllInEditor(g_find.editor, find, EditText(g_find.replaceEdit));
     }
-    Refresh(replaced > 0 ? std::to_wstring(replaced) + L"개 바꿈" : std::wstring());
+    Refresh(replaced > 0 ? Format(Str(StrId::ReplacedFormat), replaced) : std::wstring());
 }
 
 void RunButton(int index)
@@ -263,7 +272,9 @@ void LayoutFindBar()
 
     // 개수 표시 폭은 가장 긴 경우 기준으로 고정해 입력 중에 입력란 폭이 흔들리지 않게 한다
     const int padX = Scale(kFieldPadX, dpi);
-    const int countWidth = std::min(TextWidth(L"9999/9999"), static_cast<int>(g_find.findField.right - g_find.findField.left) / 2);
+    // 가장 긴 표시 기준으로 폭을 고정해 입력 중 흔들리지 않게 한다
+    const int widest = std::max(TextWidth(L"9999/9999"), TextWidth(Format(Str(StrId::MatchCountFormat), kMaxCount).c_str()));
+    const int countWidth = std::min(widest, static_cast<int>(g_find.findField.right - g_find.findField.left) / 2);
     g_find.countRect = {g_find.findField.right - padX - countWidth, g_find.findField.top,
                         g_find.findField.right - padX, g_find.findField.bottom};
     PlaceEdit(g_find.findEdit, g_find.findField, countWidth + padX / 2, true);
@@ -552,8 +563,8 @@ HWND CreateFindBar(HWND owner, HINSTANCE instance, HWND editor)
                                   0, 0, 0, 0, owner, nullptr, instance, nullptr);
     if (!g_find.hwnd) return nullptr;
 
-    g_find.findEdit = CreateField(L"Find");
-    g_find.replaceEdit = CreateField(L"Replace");
+    g_find.findEdit = CreateField(Str(StrId::FindCue));
+    g_find.replaceEdit = CreateField(Str(StrId::ReplaceCue));
     if (!g_find.findEdit || !g_find.replaceEdit) return nullptr;
     CreateFonts();
     CreateTooltips();

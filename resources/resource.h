@@ -4,6 +4,7 @@
 #define IDI_APP             1       // 가장 작은 ID의 아이콘이 탐색기에서 exe 아이콘으로 쓰인다
 #define IDR_MAINMENU        101
 #define IDR_ACCEL           102
+#define IDR_MAINMENU_KO     103     // Windows 표시 언어가 한국어일 때 쓰는 메뉴
 
 // File 메뉴
 #define IDM_FILE_NEW        1001

@@ -1,5 +1,7 @@
 #include "theme.h"
 
+#include "strings.h"
+
 #include <dwmapi.h>
 #include <uxtheme.h>
 #include <algorithm>
@@ -77,6 +79,12 @@ bool FontExists(const wchar_t* face)
     return found;
 }
 
+// 메뉴/버튼 같은 UI 글자의 기본 글꼴. 한국어 화면이면 문구가 모두 한글이라 맑은 고딕으로 그린다.
+const wchar_t* DefaultUiTextFace()
+{
+    return IsKoreanUi() ? HangulUiFontFace() : UiFontFace();
+}
+
 }  // namespace
 
 const ThemeColors& CurrentTheme()
@@ -146,7 +154,7 @@ HFONT CreateUiFont(int pointTenths, UINT dpi, int weight, const wchar_t* face)
     lf.lfWeight = weight;
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = CLEARTYPE_QUALITY;
-    wcsncpy_s(lf.lfFaceName, face ? face : UiFontFace(), _TRUNCATE);
+    wcsncpy_s(lf.lfFaceName, face ? face : DefaultUiTextFace(), _TRUNCATE);
     return CreateFontIndirectW(&lf);
 }
 
@@ -157,7 +165,7 @@ HFONT CreateUiFontPx(int pixelSize, UINT dpi, int weight, const wchar_t* face)
     lf.lfWeight = weight;
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = CLEARTYPE_QUALITY;
-    wcsncpy_s(lf.lfFaceName, face ? face : UiFontFace(), _TRUNCATE);
+    wcsncpy_s(lf.lfFaceName, face ? face : DefaultUiTextFace(), _TRUNCATE);
     return CreateFontIndirectW(&lf);
 }
 

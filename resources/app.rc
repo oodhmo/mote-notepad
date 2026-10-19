@@ -43,6 +43,43 @@ BEGIN
     END
 END
 
+// Windows 표시 언어가 한국어일 때 쓰는 같은 구조의 메뉴 (항목 순서와 ID가 위와 같아야 한다)
+IDR_MAINMENU_KO MENU
+BEGIN
+    POPUP "파일"
+    BEGIN
+        MENUITEM "새로 만들기(&N)\tCtrl+N",         IDM_FILE_NEW
+        MENUITEM "새 창(&W)\tCtrl+Shift+N",         IDM_FILE_NEWWINDOW
+        MENUITEM "열기(&O)...\tCtrl+O",             IDM_FILE_OPEN
+        POPUP "최근 파일(&R)"
+        BEGIN
+            MENUITEM "(없음)",                      IDM_FILE_RECENT_EMPTY, GRAYED
+        END
+        MENUITEM "저장(&S)\tCtrl+S",                IDM_FILE_SAVE
+        MENUITEM "다른 이름으로 저장(&A)...\tCtrl+Shift+S", IDM_FILE_SAVEAS
+        MENUITEM SEPARATOR
+        MENUITEM "끝내기(&X)",                      IDM_FILE_EXIT
+    END
+    POPUP "편집"
+    BEGIN
+        MENUITEM "실행 취소(&U)\tCtrl+Z",           IDM_EDIT_UNDO
+        MENUITEM "다시 실행(&R)\tCtrl+Y",           IDM_EDIT_REDO
+        MENUITEM SEPARATOR
+        MENUITEM "잘라내기(&T)\tCtrl+X",            IDM_EDIT_CUT
+        MENUITEM "복사(&C)\tCtrl+C",                IDM_EDIT_COPY
+        MENUITEM "붙여넣기(&P)\tCtrl+V",            IDM_EDIT_PASTE
+        MENUITEM SEPARATOR
+        MENUITEM "모두 선택(&A)\tCtrl+A",           IDM_EDIT_SELECTALL
+        MENUITEM SEPARATOR
+        MENUITEM "찾기(&F)...\tCtrl+F",             IDM_EDIT_FIND
+        MENUITEM "다음 찾기(&N)\tF3",               IDM_EDIT_FINDNEXT
+        MENUITEM "이전 찾기(&V)\tShift+F3",         IDM_EDIT_FINDPREV
+        MENUITEM "바꾸기(&E)...\tCtrl+H",           IDM_EDIT_REPLACE
+        MENUITEM SEPARATOR
+        MENUITEM "툴바 숨기기(&T)\tCtrl+\\",        IDM_VIEW_TOOLBAR
+    END
+END
+
 // 편집 단축키(Ctrl+C/V/X/Z/Y/A)는 RichEdit 기본 처리에 맡긴다.
 // 가속키로 가로채면 찾기 대화상자 입력란 등 다른 컨트롤에서 동작하지 않기 때문이다.
 IDR_ACCEL ACCELERATORS

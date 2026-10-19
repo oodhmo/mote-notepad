@@ -47,6 +47,7 @@ const wchar_t* IconFontFace();
 inline int Scale(int value, UINT dpi) { return MulDiv(value, static_cast<int>(dpi), 96); }
 
 // 포인트 크기(10분의 1 단위)로 UI 글꼴을 만든다. 호출자가 DeleteObject 해야 한다.
+// face를 생략하면 화면 언어에 맞는 글꼴(한국어: 맑은 고딕, 그 외: UiFontFace)을 쓴다.
 HFONT CreateUiFont(int pointTenths, UINT dpi, int weight = FW_NORMAL, const wchar_t* face = nullptr);
 
 // 글자 크기를 96 DPI 기준 픽셀(CSS의 font-size px과 같은 의미)로 지정해 UI 글꼴을 만든다.

@@ -1,5 +1,6 @@
 #include "file_io.h"
 #include "editor.h"
+#include "strings.h"
 
 #include <richedit.h>
 #include <shobjidl.h>
@@ -16,7 +17,7 @@ std::wstring SystemErrorText(DWORD code)
     const DWORD length = FormatMessageW(
         FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
         nullptr, code, 0, reinterpret_cast<wchar_t*>(&buffer), 0, nullptr);
-    std::wstring text = (length && buffer) ? std::wstring(buffer, length) : L"알 수 없는 오류 (" + std::to_wstring(code) + L")";
+    std::wstring text = (length && buffer) ? std::wstring(buffer, length) : std::wstring(Str(StrId::ErrorUnknown)) + L" (" + std::to_wstring(code) + L")";
     if (buffer) LocalFree(buffer);
     while (!text.empty() && (text.back() == L'\n' || text.back() == L'\r' || text.back() == L' ')) text.pop_back();
     return text;
@@ -46,7 +47,7 @@ bool ReadWholeFile(const std::wstring& path, std::string& bytes, std::wstring& e
     if (!GetFileSizeEx(file, &size)) {
         error = SystemErrorText(GetLastError());
     } else if (static_cast<ULONGLONG>(size.QuadPart) > kMaxFileSize) {
-        error = L"파일이 너무 큽니다 (최대 512MB).";
+        error = Str(StrId::ErrorFileTooLarge);
     } else {
         bytes.resize(static_cast<size_t>(size.QuadPart));
         size_t offset = 0;
@@ -219,11 +220,11 @@ bool ShowOpenDialog(HWND owner, const std::wstring& startFolder, std::wstring& p
     IFileOpenDialog* dialog = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
 
-    static const COMDLG_FILTERSPEC filters[] = {
-        {L"문서 (*.rtf, *.txt)", L"*.rtf;*.txt"},
-        {L"서식 있는 텍스트 (*.rtf)", L"*.rtf"},
-        {L"텍스트 문서 (*.txt)", L"*.txt"},
-        {L"모든 파일 (*.*)", L"*.*"},
+    const COMDLG_FILTERSPEC filters[] = {
+        {Str(StrId::FilterDocuments), L"*.rtf;*.txt"},
+        {Str(StrId::FilterRtf), L"*.rtf"},
+        {Str(StrId::FilterTxt), L"*.txt"},
+        {Str(StrId::FilterAll), L"*.*"},
     };
     DWORD options = 0;
     dialog->GetOptions(&options);
@@ -247,9 +248,9 @@ bool ShowSaveDialog(HWND owner, const std::wstring& currentPath, FileFormat curr
     IFileSaveDialog* dialog = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
 
-    static const COMDLG_FILTERSPEC filters[] = {
-        {L"서식 있는 텍스트 (*.rtf)", L"*.rtf"},
-        {L"텍스트 문서 (*.txt)", L"*.txt"},
+    const COMDLG_FILTERSPEC filters[] = {
+        {Str(StrId::FilterRtf), L"*.rtf"},
+        {Str(StrId::FilterTxt), L"*.txt"},
     };
     DWORD options = 0;
     dialog->GetOptions(&options);
@@ -261,7 +262,7 @@ bool ShowSaveDialog(HWND owner, const std::wstring& currentPath, FileFormat curr
     dialog->SetDefaultExtension(text ? L"txt" : L"rtf");
 
     if (currentPath.empty()) {
-        dialog->SetFileName(L"제목 없음");
+        dialog->SetFileName(Str(StrId::Untitled));
     } else {
         const size_t slash = currentPath.find_last_of(L"\\/");
         if (slash != std::wstring::npos) {
@@ -304,7 +305,7 @@ bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& forma
 
     if (!ok) {
         ResetEditorDocument(editor);
-        error = L"파일 내용을 읽을 수 없습니다. 손상된 파일일 수 있습니다.";
+        error = Str(StrId::ErrorCorruptFile);
         return false;
     }
 
@@ -333,7 +334,7 @@ bool SaveEditorToFile(HWND editor, const std::wstring& path, FileFormat format, 
         ReplaceTextColor(editor, kAutoColor, themeColor);
     }
     if (!ok) {
-        error = L"문서 내용을 변환하지 못했습니다.";
+        error = Str(StrId::ErrorConvert);
         return false;
     }
     if (!WriteWholeFile(path, bytes, error)) return false;

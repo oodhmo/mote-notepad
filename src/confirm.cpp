@@ -1,5 +1,6 @@
 #include "confirm.h"
 #include "theme.h"
+#include "strings.h"
 
 #include <dwmapi.h>
 #include <windowsx.h>
@@ -26,7 +27,7 @@ constexpr int kMinButtonWidth = 72;
 constexpr int kButtonGap = 8;
 constexpr int kCornerRadius = 6;
 // 글자 크기 (96 DPI 기준 px)
-// 이 창의 글자는 모두 한국어라 맑은 고딕 하나로 그린다 (HangulUiFontFace 참고)
+// 기본 UI 글꼴을 쓴다 (한국어 화면이면 맑은 고딕, CreateUiFontPx 참고)
 constexpr int kTitleFontPx = 15;   // 제목, 굵게
 constexpr int kBodyFontPx = 13;    // 파일 이름
 constexpr int kButtonFontPx = 13;  // 버튼 (파일 이름과 같은 크기)
@@ -42,7 +43,7 @@ struct ConfirmState {
     HFONT bodyFont = nullptr;
     HFONT buttonFont = nullptr;
     std::wstring documentName;
-    const wchar_t* labels[kButtonCount] = {L"취소", L"저장 안 함", L"저장"};
+    const wchar_t* labels[kButtonCount] = {Str(StrId::Cancel), Str(StrId::DontSave), Str(StrId::Save)};
     RECT buttons[kButtonCount] = {};
     RECT titleRect = {};
     RECT bodyRect = {};
@@ -169,7 +170,7 @@ void Paint(HWND hwnd)
     SetBkMode(paint.dc, TRANSPARENT);
     HGDIOBJ oldFont = SelectObject(paint.dc, g_confirm.titleFont);
     SetTextColor(paint.dc, theme.text);
-    DrawTextW(paint.dc, L"변경 내용을 저장하시겠습니까?", -1, &g_confirm.titleRect,
+    DrawTextW(paint.dc, Str(StrId::SaveChangesTitle), -1, &g_confirm.titleRect,
               DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
 
     SelectObject(paint.dc, g_confirm.bodyFont);
@@ -286,10 +287,9 @@ SaveChoice AskSaveChanges(HWND owner, const std::wstring& documentName)
     g_confirm = ConfirmState{};
     g_confirm.dpi = GetDpiForWindow(owner);
     g_confirm.documentName = documentName;
-    const wchar_t* face = HangulUiFontFace();
-    g_confirm.titleFont = CreateUiFontPx(kTitleFontPx, g_confirm.dpi, FW_BOLD, face);
-    g_confirm.bodyFont = CreateUiFontPx(kBodyFontPx, g_confirm.dpi, FW_NORMAL, face);
-    g_confirm.buttonFont = CreateUiFontPx(kButtonFontPx, g_confirm.dpi, FW_NORMAL, face);
+    g_confirm.titleFont = CreateUiFontPx(kTitleFontPx, g_confirm.dpi, FW_BOLD);
+    g_confirm.bodyFont = CreateUiFontPx(kBodyFontPx, g_confirm.dpi);
+    g_confirm.buttonFont = CreateUiFontPx(kButtonFontPx, g_confirm.dpi);
     const SIZE size = Layout();
 
     // owner 창 가운데에 띄우고 화면 밖으로 나가지 않게 한다

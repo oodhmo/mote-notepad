@@ -23,6 +23,7 @@ using std::min;
 #include "theme.h"
 #include "topbar.h"
 #include "../resources/resource.h"
+#include "strings.h"
 
 namespace {
 
@@ -70,7 +71,7 @@ void ShowError(const wchar_t* title, const std::wstring& detail)
 
 std::wstring DocumentName()
 {
-    if (g_app.filePath.empty()) return L"제목 없음";
+    if (g_app.filePath.empty()) return Str(StrId::Untitled);
     const size_t slash = g_app.filePath.find_last_of(L"\\/");
     return slash == std::wstring::npos ? g_app.filePath : g_app.filePath.substr(slash + 1);
 }
@@ -317,7 +318,7 @@ bool OpenDocument(const std::wstring& path)
     std::wstring error;
     if (!LoadFileIntoEditor(g_app.editor, path, format, error)) {
         RemoveRecentFile(path);  // 지워졌거나 옮겨진 파일이 최근 목록에 계속 남지 않게 한다
-        ShowError(L"파일을 열 수 없습니다.", path + L"\n\n" + error);
+        ShowError(Str(StrId::ErrorOpenFile), path + L"\n\n" + error);
         return false;
     }
     g_app.filePath = path;
@@ -336,7 +337,7 @@ bool SaveDocumentAs()
     const FileFormat format = FormatFromPath(path);
     std::wstring error;
     if (!SaveEditorToFile(g_app.editor, path, format, error)) {
-        ShowError(L"파일을 저장할 수 없습니다.", path + L"\n\n" + error);
+        ShowError(Str(StrId::ErrorSaveFile), path + L"\n\n" + error);
         return false;
     }
     g_app.filePath = path;
@@ -351,7 +352,7 @@ bool SaveDocument()
     if (g_app.filePath.empty()) return SaveDocumentAs();
     std::wstring error;
     if (!SaveEditorToFile(g_app.editor, g_app.filePath, g_app.format, error)) {
-        ShowError(L"파일을 저장할 수 없습니다.", g_app.filePath + L"\n\n" + error);
+        ShowError(Str(StrId::ErrorSaveFile), g_app.filePath + L"\n\n" + error);
         return false;
     }
     AddRecentFile(g_app.filePath);
@@ -366,7 +367,7 @@ void OpenNewWindow()
     wchar_t exePath[MAX_PATH * 4];
     const DWORD length = GetModuleFileNameW(nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
     if (length == 0 || length >= std::size(exePath)) {
-        ShowError(L"새 창을 열 수 없습니다.", L"실행 파일 경로를 확인할 수 없습니다.");
+        ShowError(Str(StrId::ErrorNewWindow), Str(StrId::ErrorExePath));
         return;
     }
 
@@ -378,7 +379,7 @@ void OpenNewWindow()
         wchar_t* text = nullptr;
         FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                        nullptr, code, 0, reinterpret_cast<wchar_t*>(&text), 0, nullptr);
-        ShowError(L"새 창을 열 수 없습니다.", text ? text : L"알 수 없는 오류");
+        ShowError(Str(StrId::ErrorNewWindow), text ? text : Str(StrId::ErrorUnknown));
         if (text) LocalFree(text);
         return;
     }
@@ -409,7 +410,7 @@ void FillRecentMenu(HMENU menu)
 
     const std::vector<std::wstring> recent = LoadRecentFiles();
     if (recent.empty()) {
-        AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_FILE_RECENT_EMPTY, L"(Empty)");
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_FILE_RECENT_EMPTY, Str(StrId::RecentEmpty));
         return;
     }
     for (size_t i = 0; i < recent.size(); ++i) {
@@ -427,7 +428,7 @@ void FillRecentMenu(HMENU menu)
         AppendMenuW(menu, MF_STRING, IDM_FILE_RECENT_FIRST + i, label.c_str());
     }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, IDM_FILE_RECENT_CLEAR, L"&Clear Recent List");
+    AppendMenuW(menu, MF_STRING, IDM_FILE_RECENT_CLEAR, Str(StrId::RecentClear));
 }
 
 HMENU FindRecentSubmenu()
@@ -464,7 +465,7 @@ void UpdateMenuState(HMENU menu)
     EnableItem(menu, IDM_EDIT_PASTE, SendMessageW(g_app.editor, EM_CANPASTE, 0, 0) != 0);
     if (GetMenuState(menu, IDM_VIEW_TOOLBAR, MF_BYCOMMAND) != static_cast<UINT>(-1)) {
         ModifyMenuW(menu, IDM_VIEW_TOOLBAR, MF_BYCOMMAND | MF_STRING, IDM_VIEW_TOOLBAR,
-                    g_app.toolbarCollapsed ? L"Show &Toolbar\tCtrl+\\" : L"Hide &Toolbar\tCtrl+\\");
+                    Str(g_app.toolbarCollapsed ? StrId::MenuShowToolbar : StrId::MenuHideToolbar));
     }
 }
 
@@ -551,7 +552,7 @@ bool OnCreate(HWND hwnd)
     SetWindowPos(hwnd, nullptr, 0, 0, Scale(kDefaultWidth, g_app.dpi), Scale(kDefaultHeight, g_app.dpi),
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-    g_app.menus = LoadMenuW(g_app.instance, MAKEINTRESOURCEW(IDR_MAINMENU));
+    g_app.menus = LoadMenuW(g_app.instance, MAKEINTRESOURCEW(IsKoreanUi() ? IDR_MAINMENU_KO : IDR_MAINMENU));
     g_app.topBar = CreateTopBar(hwnd, g_app.instance, g_app.menus);
     g_app.editor = CreateEditor(hwnd, g_app.instance, GetSubMenu(g_app.menus, 1));
     if (!g_app.menus || !g_app.topBar || !g_app.editor) return false;
@@ -702,7 +703,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 
     // RichEdit 4.1 이상(RICHEDIT50W) 클래스를 등록한다
     if (!LoadLibraryW(L"Msftedit.dll")) {
-        MessageBoxW(nullptr, L"Msftedit.dll을 불러올 수 없습니다.", kAppName, MB_ICONERROR);
+        MessageBoxW(nullptr, Str(StrId::ErrorRichEdit), kAppName, MB_ICONERROR);
         return 1;
     }
 
@@ -724,7 +725,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
                                   CW_USEDEFAULT, CW_USEDEFAULT, kDefaultWidth, kDefaultHeight,
                                   nullptr, nullptr, instance, nullptr);
     if (!window) {
-        MessageBoxW(nullptr, L"창을 만들 수 없습니다.", kAppName, MB_ICONERROR);
+        MessageBoxW(nullptr, Str(StrId::ErrorCreateWindow), kAppName, MB_ICONERROR);
         return 1;
     }
     g_app.accelerators = LoadAcceleratorsW(instance, MAKEINTRESOURCEW(IDR_ACCEL));

@@ -1,6 +1,7 @@
 #include "topbar.h"
 #include "theme.h"
 #include "../resources/resource.h"
+#include "strings.h"
 
 #include <commctrl.h>
 #include <dwmapi.h>
@@ -87,13 +88,13 @@ struct TopBarState {
     HFONT chevronFont = nullptr;
     bool collapsed = false;  // 사용자가 바를 접었는지 (접힌 채 잠깐 보이는 중이면 화살표 방향이 바뀐다)
     BarItem items[kItemCount] = {
-        {ItemKind::Menu, L"File", 0, nullptr, {}},
-        {ItemKind::Menu, L"Edit", 0, nullptr, {}},
-        {ItemKind::Toggle, L"", IDM_FORMAT_BOLD, L"굵게 (Ctrl+B)", {}},
-        {ItemKind::Toggle, L"", IDM_FORMAT_ITALIC, L"기울임꼴 (Ctrl+I)", {}},
-        {ItemKind::Toggle, L"", IDM_FORMAT_UNDERLINE, L"밑줄 (Ctrl+U)", {}},
-        {ItemKind::Color, L"", 0, L"글자색", {}},
-        {ItemKind::Button, kChevronUp, IDM_VIEW_TOOLBAR, L"툴바 숨기기 (Ctrl+\\)", {}},
+        {ItemKind::Menu, Str(StrId::MenuFile), 0, nullptr, {}},
+        {ItemKind::Menu, Str(StrId::MenuEdit), 0, nullptr, {}},
+        {ItemKind::Toggle, L"", IDM_FORMAT_BOLD, Str(StrId::TipBold), {}},
+        {ItemKind::Toggle, L"", IDM_FORMAT_ITALIC, Str(StrId::TipItalic), {}},
+        {ItemKind::Toggle, L"", IDM_FORMAT_UNDERLINE, Str(StrId::TipUnderline), {}},
+        {ItemKind::Color, L"", 0, Str(StrId::TipTextColor), {}},
+        {ItemKind::Button, kChevronUp, IDM_VIEW_TOOLBAR, Str(StrId::TipHideToolbar), {}},
     };
     int hot = -1;       // 마우스가 올라간 항목
     int pressed = -1;   // 눌린 버튼 / 팝업이 열려 있는 항목
@@ -232,7 +233,7 @@ void PaintPopup(HWND hwnd)
     HGDIOBJ oldFont = SelectObject(paint.dc, g_popup.font);
     SetBkMode(paint.dc, TRANSPARENT);
     SetTextColor(paint.dc, theme.text);
-    DrawTextW(paint.dc, L"Custom color…", -1, &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(paint.dc, Str(StrId::CustomColor), -1, &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(paint.dc, oldFont);
 }
 
@@ -811,7 +812,7 @@ HWND CreateTopBar(HWND owner, HINSTANCE instance, HMENU menus)
             ti.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
             ti.hwnd = g_expand.hwnd;
             ti.uId = reinterpret_cast<UINT_PTR>(g_expand.hwnd);
-            ti.lpszText = const_cast<LPWSTR>(L"툴바 표시 (Ctrl+\\)");
+            ti.lpszText = const_cast<LPWSTR>(Str(StrId::TipShowToolbar));
             SendMessageW(g_expand.tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
         }
     }
@@ -865,7 +866,7 @@ void SetTopBarCollapsed(HWND bar, bool collapsed)
     // 접힌 채 잠깐 보이는 바에서는 화살표가 아래를 향하고 "다시 펼쳐 고정"하는 버튼이 된다
     BarItem& item = g_bar.items[kCollapseItem];
     item.label = collapsed ? kChevronDown : kChevronUp;
-    item.tooltip = collapsed ? L"툴바 표시 (Ctrl+\\)" : L"툴바 숨기기 (Ctrl+\\)";
+    item.tooltip = Str(collapsed ? StrId::TipShowToolbar : StrId::TipHideToolbar);
     if (g_bar.tooltip) {
         TTTOOLINFOW ti = {sizeof(ti)};
         ti.hwnd = g_bar.hwnd;
