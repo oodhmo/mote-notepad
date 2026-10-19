@@ -145,3 +145,7 @@ cmake --build --preset release
    ```powershell
    gh release create vx.y.z build/Release/mote.exe --title "mote x.y.z" --notes "..."
    ```
+
+## 라이선스
+
+[MIT](LICENSE) © oodhmo
