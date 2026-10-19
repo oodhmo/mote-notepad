@@ -288,10 +288,12 @@ HWND CreateEditor(HWND parent, HINSTANCE instance, HMENU contextMenu)
     SendMessageW(editor, EM_SETOLECALLBACK, 0, reinterpret_cast<LPARAM>(&g_oleCallback));
 
     // 맞춤법 검사(빨간 밑줄)와 터치 키보드 자동 교정/추천을 명시적으로 끈다.
-    // 한글 입력을 위해 IME 관련 옵션(IMF_DUALFONT 등)은 유지한다.
+    // 글꼴 자동 연결(IMF_AUTOFONT/IMF_DUALFONT)도 끈다. 켜 두면 한글이 나올 때마다 맑은 고딕 구간을 따로 만들어
+    // 한글이 많은 큰 파일을 열 때 수십 초가 걸리고(50MB 기준 30초 → 3초), 한글이 있는 줄만 줄 간격이 넓어진다.
+    // 꺼도 한글은 Windows 글꼴 대체로 같은 모양(맑은 고딕)으로 그려진다.
     LRESULT lang = SendMessageW(editor, EM_GETLANGOPTIONS, 0, 0);
-    lang &= ~static_cast<LRESULT>(IMF_SPELLCHECKING | IMF_TKBPREDICTION | IMF_TKBAUTOCORRECTION);
-    lang |= IMF_DUALFONT;
+    lang &= ~static_cast<LRESULT>(IMF_SPELLCHECKING | IMF_TKBPREDICTION | IMF_TKBAUTOCORRECTION |
+                                  IMF_AUTOFONT | IMF_DUALFONT | IMF_AUTOFONTSIZEADJUST);
     SendMessageW(editor, EM_SETLANGOPTIONS, 0, lang);
     SendMessageW(editor, EM_AUTOURLDETECT, 0, 0);
 
