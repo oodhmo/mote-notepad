@@ -297,6 +297,10 @@ HWND CreateEditor(HWND parent, HINSTANCE instance, HMENU contextMenu)
     SendMessageW(editor, EM_SETLANGOPTIONS, 0, lang);
     SendMessageW(editor, EM_AUTOURLDETECT, 0, 0);
 
+    // IME를 TSF로 받는다. 예전 방식(IMM32)에서는 한글을 조합하는 동안 글자가 검은 블록으로 반전되어 보이는데,
+    // TSF에서는 메모장처럼 얇은 커서로 보인다. 맞춤법/스마트 태그 같은 TSF 부가 기능(SES_CTFALLOW*)은 켜지 않는다.
+    SendMessageW(editor, EM_SETEDITSTYLE, SES_USECTF, SES_USECTF);
+
     SendMessageW(editor, EM_SETBKGNDCOLOR, 0, CurrentTheme().windowBg);
     ApplyControlTheme(editor);
     SendMessageW(editor, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
