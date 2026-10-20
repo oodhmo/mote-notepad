@@ -188,6 +188,70 @@ void ApplyPadding(HWND editor)
     SendMessageW(editor, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&rc));
 }
 
+// 첫 글자의 서식 사본 (문서가 비어 있으면 nullptr, 호출자가 Release)
+ITextFont* DuplicateFirstCharFont()
+{
+    if (!g_textDoc) return nullptr;
+    ITextRange* range = nullptr;
+    if (FAILED(g_textDoc->Range(0, 1, &range)) || !range) return nullptr;
+    ITextFont* duplicate = nullptr;
+    long storyLength = 0;
+    range->GetStoryLength(&storyLength);
+    if (storyLength > 1) {  // 끝의 단락 기호(EOP)만 있으면 빈 문서
+        ITextFont* font = nullptr;
+        if (SUCCEEDED(range->GetFont(&font)) && font) {
+            font->GetDuplicate(&duplicate);
+            font->Release();
+        }
+    }
+    range->Release();
+    return duplicate;
+}
+
+bool IsDocumentEmpty()
+{
+    ITextRange* range = nullptr;
+    if (!g_textDoc || FAILED(g_textDoc->Range(0, 0, &range)) || !range) return false;
+    long storyLength = 0;
+    range->GetStoryLength(&storyLength);
+    range->Release();
+    return storyLength <= 1;
+}
+
+// 빈 문서의 입력 위치 서식을 font로 정한다.
+// 수정 표시와 실행 취소 기록에는 남기지 않는다.
+void ApplyInsertionFont(HWND editor, ITextFont* font)
+{
+    ITextSelection* selection = nullptr;
+    if (FAILED(g_textDoc->GetSelection(&selection)) || !selection) return;
+    const LPARAM wasModified = SendMessageW(editor, EM_GETMODIFY, 0, 0);
+    g_textDoc->Undo(tomSuspend, nullptr);
+    selection->SetFont(font);
+    g_textDoc->Undo(tomResume, nullptr);
+    SendMessageW(editor, EM_SETMODIFY, wasModified, 0);
+    selection->Release();
+
+    // 삭제 중에 온 선택 변경 알림은 바뀌기 전 서식을 읽었으므로, 상단 바 색 표시를 다시 갱신하게 알린다
+    SELCHANGE notify = {};
+    notify.nmhdr.hwndFrom = editor;
+    notify.nmhdr.idFrom = static_cast<UINT_PTR>(GetDlgCtrlID(editor));
+    notify.nmhdr.code = EN_SELCHANGE;
+    SendMessageW(editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&notify.chrg));
+    notify.seltyp = SEL_EMPTY;
+    SendMessageW(GetParent(editor), WM_NOTIFY, notify.nmhdr.idFrom, reinterpret_cast<LPARAM>(&notify));
+}
+
+// 본문을 지울 수 있는 입력인지 (Backspace/Delete/Ctrl+Backspace/잘라내기)
+bool IsDeletingMessage(UINT msg, WPARAM wp)
+{
+    switch (msg) {
+    case WM_KEYDOWN: return wp == VK_BACK || wp == VK_DELETE;
+    case WM_CHAR: return wp == 0x08 || wp == 0x7F;
+    case WM_CUT: return true;
+    default: return false;
+    }
+}
+
 void ShowContextMenu(HWND editor, POINT screenPt)
 {
     if (!g_contextMenu) return;
@@ -198,6 +262,19 @@ void ShowContextMenu(HWND editor, POINT screenPt)
 
 LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR)
 {
+    // 본문을 모두 지우면 RichEdit는 끝의 단락 기호 서식(기본색)으로 돌아간다.
+    // Ctrl+A 선택에는 단락 기호가 들어가지 않아 사용자가 고른 색이 사라지므로,
+    // 지운 첫 글자의 서식을 빈 문서의 입력 서식으로 이어받게 한다 (워드와 같은 동작).
+    if (IsDeletingMessage(msg, wp)) {
+        ITextFont* font = DuplicateFirstCharFont();
+        const LRESULT result = DefSubclassProc(hwnd, msg, wp, lp);
+        if (font) {
+            if (IsDocumentEmpty()) ApplyInsertionFont(hwnd, font);
+            font->Release();
+        }
+        return result;
+    }
+
     switch (msg) {
     case WM_KEYDOWN:
         if (IsBlockedShortcut(wp)) {
