@@ -9,6 +9,7 @@
 #include <windowsx.h>
 #include <algorithm>
 #include <iterator>
+#include <vector>
 namespace Gdiplus {
 using std::max;
 using std::min;
@@ -50,10 +51,14 @@ constexpr int kSwatchSize = 18;
 constexpr int kCustomRowHeight = 30;
 constexpr int kBadgeHeight = 11;       // 색 아래 단축키 표시(F1/F2/F3) 줄
 constexpr int kBadgeFontPx = 10;
+constexpr int kCaptionHeight = 16;     // "최근 사용한 색" 제목 줄
 constexpr DWORD kReopenGuardMs = 200;  // 팝업을 닫은 클릭이 곧바로 다시 여는 것을 막는 시간
 
+// 팝업 항목 번호: 기본 팔레트(0~7) → 최근 사용한 색(8~15) → Custom color…
 constexpr int kPaletteCount = 8;
-constexpr int kCustomItem = kPaletteCount;  // 팔레트 다음 항목 = Custom color…
+constexpr int kRecentFirst = kPaletteCount;
+constexpr int kCustomItem = kRecentFirst + static_cast<int>(kMaxRecentColors);
+constexpr int kPopupItemCount = kCustomItem + 1;
 
 // Notion 계열의 차분한 글자색. 0번(Black)은 테마 기본 글자색을 사용한다.
 constexpr COLORREF kPalette[kPaletteCount] = {
@@ -111,9 +116,12 @@ struct PopupState {
     HWND hwnd = nullptr;
     HFONT font = nullptr;
     HFONT badgeFont = nullptr;
-    ColorShortcuts shortcuts = {};  // Ctrl+F1~F3에 지정된 팔레트 번호 (팝업을 열 때 레지스트리에서 다시 읽는다)
-    RECT cells[kPaletteCount + 1] = {};  // 마지막은 Custom color 행
-    RECT separator = {};
+    // Ctrl+F1~F3에 지정된 색과 최근 사용한 색 (팝업을 열 때 레지스트리에서 다시 읽는다)
+    ColorShortcuts shortcuts = {};
+    std::vector<COLORREF> recent;
+    RECT cells[kPopupItemCount] = {};  // 쓰지 않는 최근 색 칸은 빈 사각형
+    RECT recentCaption = {};           // 최근 색이 없으면 빈 사각형
+    RECT separators[2] = {};
     int hot = -1;          // 마우스/키보드로 가리키는 항목
     bool closing = false;
     bool trackingLeave = false;
@@ -164,18 +172,99 @@ COLORREF PaletteColor(int index)
     return index == 0 ? DefaultTextColor() : kPalette[index];
 }
 
-bool IsSelectedSwatch(int index)
+int RecentCount()
 {
-    return !g_bar.format.colorMixed && g_bar.format.color == PaletteColor(index);
+    return static_cast<int>(g_popup.recent.size());
 }
 
-// 팔레트 index번 색이 지정된 단축키 슬롯 (없으면 -1)
+bool IsRecentItem(int index)
+{
+    return index >= kRecentFirst && index < kRecentFirst + RecentCount();
+}
+
+// 색 견본 항목인지 (팔레트 또는 최근 사용한 색)
+bool IsColorItem(int index)
+{
+    return (index >= 0 && index < kPaletteCount) || IsRecentItem(index);
+}
+
+COLORREF ItemColor(int index)
+{
+    return index < kPaletteCount ? PaletteColor(index) : g_popup.recent[index - kRecentFirst];
+}
+
+// 색 견본 항목을 단축키에 저장하는 값으로 나타낸다
+ColorShortcut ItemShortcut(int index)
+{
+    if (index < kPaletteCount) return {index};
+    return {-1, ItemColor(index)};
+}
+
+bool IsSelectedSwatch(int index)
+{
+    return !g_bar.format.colorMixed && g_bar.format.color == ItemColor(index);
+}
+
+// index번 색 견본이 지정된 단축키 슬롯 (없으면 -1)
 int ShortcutSlotOf(int index)
 {
+    const ColorShortcut value = ItemShortcut(index);
     for (int slot = 0; slot < kColorShortcutCount; ++slot) {
-        if (g_popup.shortcuts[slot] == index) return slot;
+        if (g_popup.shortcuts[slot] == value) return slot;
     }
     return -1;
+}
+
+COLORREF ColorOf(const ColorShortcut& shortcut)
+{
+    return shortcut.IsCustom() ? shortcut.custom : PaletteColor(shortcut.palette);
+}
+
+bool IsPaletteColor(COLORREF color)
+{
+    for (int i = 0; i < kPaletteCount; ++i) {
+        if (PaletteColor(i) == color) return true;
+    }
+    return false;
+}
+
+// 단축키에 지정된 사용자 지정 색인지 (최근 색 목록에서 밀려나지 않는다)
+bool IsShortcutColor(const ColorShortcuts& shortcuts, COLORREF color)
+{
+    return std::ranges::any_of(shortcuts, [&](const ColorShortcut& s) { return s.IsCustom() && s.custom == color; });
+}
+
+// 최근 색 목록을 최대 개수로 줄인다. 단축키에 지정된 색은 남기고 오래된 색부터 뺀다.
+void TrimRecentColors(std::vector<COLORREF>& recent, const ColorShortcuts& shortcuts)
+{
+    for (size_t i = recent.size(); i-- > 0 && recent.size() > kMaxRecentColors;) {
+        if (!IsShortcutColor(shortcuts, recent[i])) recent.erase(recent.begin() + static_cast<ptrdiff_t>(i));
+    }
+}
+
+// 팝업에 보여 줄 최근 색. 단축키에 지정된 사용자 지정 색은 목록에 없더라도 함께 보여 준다.
+std::vector<COLORREF> LoadPopupRecentColors(const ColorShortcuts& shortcuts)
+{
+    std::vector<COLORREF> recent = LoadRecentColors();
+    // 테마가 바뀌면 예전 색이 팔레트 기본색과 같아질 수 있어 겹치지 않게 뺀다
+    std::erase_if(recent, IsPaletteColor);
+    for (const ColorShortcut& shortcut : shortcuts) {
+        if (shortcut.IsCustom() && std::ranges::find(recent, shortcut.custom) == recent.end()) {
+            recent.push_back(shortcut.custom);
+        }
+    }
+    TrimRecentColors(recent, shortcuts);
+    return recent;
+}
+
+// slot에 value를 지정한다. 같은 색이 이미 다른 슬롯에 있으면 두 슬롯의 색을 맞바꾼다 (같은 색이 두 단축키에 겹치지 않게)
+void AssignShortcut(ColorShortcuts& shortcuts, int slot, const ColorShortcut& value)
+{
+    for (int other = 0; other < kColorShortcutCount; ++other) {
+        if (other != slot && shortcuts[other] == value) shortcuts[other] = shortcuts[slot];
+    }
+    shortcuts[slot] = value;
+    SaveColorShortcuts(shortcuts);
 }
 
 // 원형 견본이 들어가는 칸의 윗부분 (아래에는 단축키 표시가 붙는다)
@@ -189,13 +278,32 @@ SIZE LayoutPopup(UINT dpi)
     const int pad = Scale(kPopupPadding, dpi);
     const int cell = Scale(kSwatchCell, dpi);
     const int cellHeight = cell + Scale(kBadgeHeight, dpi);
+    const int width = pad * 2 + kPaletteCount * cell;
+    const int gap = Scale(6, dpi);
     for (int i = 0; i < kPaletteCount; ++i) {
         g_popup.cells[i] = {pad + i * cell, pad, pad + (i + 1) * cell, pad + cellHeight};
     }
-    const int width = pad * 2 + kPaletteCount * cell;
-    const int separatorY = pad + cellHeight + Scale(6, dpi);
-    g_popup.separator = {pad, separatorY, width - pad, separatorY + 1};
-    const int rowTop = separatorY + 1 + Scale(4, dpi);
+    int y = pad + cellHeight + gap;
+    g_popup.separators[0] = {pad, y, width - pad, y + 1};
+    y += 1;
+
+    // 최근 사용한 색 줄: 제목 + 견본. 최근 색이 없으면 줄 자체를 만들지 않는다.
+    for (int i = kRecentFirst; i < kCustomItem; ++i) g_popup.cells[i] = {};
+    g_popup.recentCaption = {};
+    g_popup.separators[1] = {};
+    if (RecentCount() > 0) {
+        y += Scale(4, dpi);
+        g_popup.recentCaption = {pad + Scale(4, dpi), y, width - pad, y + Scale(kCaptionHeight, dpi)};
+        y = g_popup.recentCaption.bottom;
+        for (int i = 0; i < RecentCount(); ++i) {
+            g_popup.cells[kRecentFirst + i] = {pad + i * cell, y, pad + (i + 1) * cell, y + cellHeight};
+        }
+        y += cellHeight + gap;
+        g_popup.separators[1] = {pad, y, width - pad, y + 1};
+        y += 1;
+    }
+
+    const int rowTop = y + Scale(4, dpi);
     const int inset = Scale(4, dpi);
     g_popup.cells[kCustomItem] = {inset, rowTop, width - inset, rowTop + Scale(kCustomRowHeight, dpi)};
     return {width, g_popup.cells[kCustomItem].bottom + inset};
@@ -207,7 +315,7 @@ void PaintPopup(HWND hwnd)
     const UINT dpi = g_bar.dpi;
     BufferedPaint paint(hwnd);
     FillSolid(paint.dc, paint.client, theme.windowBg);
-    FillSolid(paint.dc, g_popup.separator, theme.border);
+    for (const RECT& separator : g_popup.separators) FillSolid(paint.dc, separator, theme.border);
 
     {
         Gdiplus::Graphics graphics(paint.dc);
@@ -219,14 +327,15 @@ void PaintPopup(HWND hwnd)
             graphics.DrawRectangle(&pen, 0.0f, 0.0f, paint.client.right - 1.0f, paint.client.bottom - 1.0f);
         }
 
-        for (int i = 0; i < kPaletteCount; ++i) {
+        for (int i = 0; i < kCustomItem; ++i) {
+            if (!IsColorItem(i)) continue;
             const RECT& cell = g_popup.cells[i];
             if (i == g_popup.hot) {
                 RECT inner = cell;
                 InflateRect(&inner, -Scale(1, dpi), -Scale(1, dpi));
                 FillRoundRect(graphics, inner, theme.hover, Scale(kCornerRadius, dpi));
             }
-            const COLORREF color = PaletteColor(i);
+            const COLORREF color = ItemColor(i);
             const RECT swatch = SwatchArea(cell, dpi);
             if (IsSelectedSwatch(i)) {
                 // 현재 색은 바깥 고리로 표시한다
@@ -256,13 +365,18 @@ void PaintPopup(HWND hwnd)
     // 단축키가 지정된 색 아래에 "F1"처럼 작게 표시한다
     HGDIOBJ oldFont = SelectObject(paint.dc, g_popup.badgeFont);
     SetTextColor(paint.dc, theme.secondaryText);
-    for (int i = 0; i < kPaletteCount; ++i) {
+    for (int i = 0; i < kCustomItem; ++i) {
+        if (!IsColorItem(i)) continue;
         const int slot = ShortcutSlotOf(i);
         if (slot < 0) continue;
         const wchar_t badge[] = {L'F', static_cast<wchar_t>(L'1' + slot), L'\0'};
         RECT badgeRect = g_popup.cells[i];
         badgeRect.top = badgeRect.bottom - Scale(kBadgeHeight + 2, dpi);
         DrawTextW(paint.dc, badge, -1, &badgeRect, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+    }
+    if (RecentCount() > 0) {
+        DrawTextW(paint.dc, Str(StrId::RecentColors), -1, &g_popup.recentCaption,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
 
     const RECT& row = g_popup.cells[kCustomItem];
@@ -296,26 +410,27 @@ void CloseColorPopup()
 
 void ChoosePopupItem(int index)
 {
-    if (index < 0 || index > kCustomItem) return;
-    const COLORREF color = index < kPaletteCount ? PaletteColor(index) : 0;
-    CloseColorPopup();
     if (index == kCustomItem) {
+        CloseColorPopup();
         PostMessageW(g_bar.owner, WM_COMMAND, IDM_FORMAT_CUSTOMCOLOR, 0);
-    } else {
+    } else if (IsColorItem(index)) {
+        const COLORREF color = ItemColor(index);
+        CloseColorPopup();
         PostMessageW(g_bar.owner, WM_MOTE_SETCOLOR, 0, static_cast<LPARAM>(color));
     }
 }
 
-// 팔레트 index번 색을 단축키 슬롯에 지정하는 작은 메뉴를 연다 (우클릭, Shift+F10, 메뉴 키)
+// index번 색 견본을 단축키 슬롯에 지정하는 작은 메뉴를 연다 (우클릭, Shift+F10, 메뉴 키)
 void ShowShortcutMenu(int index, POINT screenPt)
 {
-    if (index < 0 || index >= kPaletteCount) return;
+    if (!IsColorItem(index)) return;
+    const ColorShortcut value = ItemShortcut(index);
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
     for (int slot = 0; slot < kColorShortcutCount; ++slot) {
         wchar_t label[64];
         swprintf_s(label, Str(StrId::AssignColorShortcut), slot + 1);
-        const UINT checked = g_popup.shortcuts[slot] == index ? MF_CHECKED : MF_UNCHECKED;
+        const UINT checked = g_popup.shortcuts[slot] == value ? MF_CHECKED : MF_UNCHECKED;
         AppendMenuW(menu, MF_STRING | checked, static_cast<UINT_PTR>(slot + 1), label);
     }
     const int chosen = static_cast<int>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN,
@@ -323,32 +438,37 @@ void ShowShortcutMenu(int index, POINT screenPt)
     DestroyMenu(menu);
     if (chosen <= 0 || !g_popup.hwnd) return;
 
-    // 이 색이 이미 다른 슬롯에 있으면 두 슬롯의 색을 맞바꾼다 (같은 색이 두 단축키에 겹치지 않게)
-    const int slot = chosen - 1;
-    const int previousSlot = ShortcutSlotOf(index);
-    if (previousSlot >= 0) g_popup.shortcuts[previousSlot] = g_popup.shortcuts[slot];
-    g_popup.shortcuts[slot] = index;
-    SaveColorShortcuts(g_popup.shortcuts);
+    AssignShortcut(g_popup.shortcuts, chosen - 1, value);
     InvalidateRect(g_popup.hwnd, nullptr, FALSE);
 }
 
-// 방향키로 항목 사이를 이동한다 (팔레트 한 줄 + 아래 Custom color 행)
+// 방향키로 항목 사이를 이동한다 (팔레트 줄, 최근 색 줄, 아래 Custom color 행)
 void MovePopupFocus(WPARAM key)
 {
     int hot = g_popup.hot;
     if (hot < 0) {
         hot = 0;
-        for (int i = 0; i < kPaletteCount; ++i) {
-            if (IsSelectedSwatch(i)) hot = i;
+        for (int i = 0; i < kCustomItem; ++i) {
+            if (IsColorItem(i) && IsSelectedSwatch(i)) hot = i;
         }
         SetPopupHot(hot);
         return;
     }
+    const bool inPalette = hot < kPaletteCount;
+    const bool inRecent = IsRecentItem(hot);
+    const int rowFirst = inPalette ? 0 : kRecentFirst;
+    const int rowLast = inPalette ? kPaletteCount - 1 : kRecentFirst + RecentCount() - 1;
     switch (key) {
-    case VK_LEFT:  hot = hot == kCustomItem ? kCustomItem : std::max(0, hot - 1); break;
-    case VK_RIGHT: hot = hot == kCustomItem ? kCustomItem : std::min(kPaletteCount - 1, hot + 1); break;
-    case VK_DOWN:  hot = kCustomItem; break;
-    case VK_UP:    hot = hot == kCustomItem ? 0 : hot; break;
+    case VK_LEFT:  if (inPalette || inRecent) hot = std::max(rowFirst, hot - 1); break;
+    case VK_RIGHT: if (inPalette || inRecent) hot = std::min(rowLast, hot + 1); break;
+    case VK_DOWN:
+        if (inPalette && RecentCount() > 0) hot = kRecentFirst + std::min(hot, RecentCount() - 1);
+        else hot = kCustomItem;
+        break;
+    case VK_UP:
+        if (hot == kCustomItem) hot = RecentCount() > 0 ? kRecentFirst : 0;
+        else if (inRecent) hot -= kRecentFirst;  // 같은 열의 팔레트 색
+        break;
     case VK_HOME:  hot = 0; break;
     case VK_END:   hot = kCustomItem; break;
     }
@@ -403,13 +523,13 @@ LRESULT CALLBACK PopupProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
         int index = g_popup.hot;
         if (lp == -1) {
-            if (index < 0 || index >= kPaletteCount) return 0;
+            if (!IsColorItem(index)) return 0;
             pt = {g_popup.cells[index].left, g_popup.cells[index].bottom};
             ClientToScreen(hwnd, &pt);
         } else {
             POINT client = pt;
             ScreenToClient(hwnd, &client);
-            index = HitTestRects(g_popup.cells, kPaletteCount, client);
+            index = HitTestRects(g_popup.cells, kCustomItem + 1, client);
         }
         ShowShortcutMenu(index, pt);
         return 0;
@@ -456,6 +576,9 @@ void ShowColorPopup(const RECT& anchor)
 {
     if (g_popup.hwnd) return;  // 팝업은 하나만 띄운다
     const UINT dpi = g_bar.dpi;
+    // 다른 mote 창에서 바꾼 지정과 최근 색도 반영하도록 열 때마다 다시 읽는다 (최근 색 수에 따라 팝업 높이가 바뀐다)
+    g_popup.shortcuts = LoadColorShortcuts(kPaletteCount);
+    g_popup.recent = LoadPopupRecentColors(g_popup.shortcuts);
     const SIZE size = LayoutPopup(dpi);
 
     // 색 버튼의 오른쪽 끝에 맞춰 바로 아래에 띄우고, 화면 밖으로 나가지 않게 한다
@@ -470,7 +593,6 @@ void ShowColorPopup(const RECT& anchor)
     g_popup.hot = -1;
     g_popup.trackingLeave = false;
     g_popup.lostToOtherApp = false;
-    g_popup.shortcuts = LoadColorShortcuts(kPaletteCount);  // 다른 mote 창에서 바꾼 지정도 반영한다
     g_popup.font = CreateUiFont(kMenuFontTenths, dpi);
     g_popup.badgeFont = CreateUiFontPx(kBadgeFontPx, dpi);
     g_popup.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, kPopupClass, L"", WS_POPUP,
@@ -1000,5 +1122,15 @@ int ExpandButtonTop(UINT dpi)
 COLORREF ShortcutColor(int slot)
 {
     if (slot < 0 || slot >= kColorShortcutCount) return DefaultTextColor();
-    return PaletteColor(LoadColorShortcuts(kPaletteCount)[slot]);
+    return ColorOf(LoadColorShortcuts(kPaletteCount)[slot]);
+}
+
+void AddRecentColor(COLORREF color)
+{
+    if (IsPaletteColor(color)) return;  // 팔레트 색은 이미 위 줄에 있다
+    std::vector<COLORREF> recent = LoadRecentColors();
+    std::erase(recent, color);
+    recent.insert(recent.begin(), color);
+    TrimRecentColors(recent, LoadColorShortcuts(kPaletteCount));
+    SaveRecentColors(recent);
 }

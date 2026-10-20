@@ -15,6 +15,7 @@ enum class StrId {
     TipShowToolbar,
     CustomColor,
     AssignColorShortcut,  // %d: 1~3 (Ctrl+F1~F3)
+    RecentColors,
     // 메뉴에서 바꿔 쓰는 항목
     RecentEmpty,
     RecentClear,

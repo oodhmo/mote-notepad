@@ -17,11 +17,24 @@ void SaveOpenWithAsked();
 bool LoadWindowPlacement(WINDOWPLACEMENT& placement);
 void SaveWindowPlacement(const WINDOWPLACEMENT& placement);
 
-// Ctrl+F1/F2/F3에 지정된 색 (색상 팝업의 팔레트 번호 0~7). 저장된 값이 없으면 빨강/파랑/초록.
+// Ctrl+F1/F2/F3에 지정된 색. 저장된 값이 없으면 빨강/파랑/초록.
 constexpr int kColorShortcutCount = 3;
-using ColorShortcuts = std::array<int, kColorShortcutCount>;
+
+// 단축키 하나에 지정된 색: 색상 팝업의 팔레트 번호(0~7) 또는 사용자 지정 색
+struct ColorShortcut {
+    int palette = -1;     // 사용자 지정 색이면 -1
+    COLORREF custom = 0;  // palette가 -1일 때의 색
+    bool IsCustom() const { return palette < 0; }
+    bool operator==(const ColorShortcut&) const = default;
+};
+using ColorShortcuts = std::array<ColorShortcut, kColorShortcutCount>;
 ColorShortcuts LoadColorShortcuts(int paletteCount);
 void SaveColorShortcuts(const ColorShortcuts& shortcuts);
+
+// 색상 팝업의 "최근 사용한 색" (팔레트에 없는 색, 최신 순, 최대 kMaxRecentColors개)
+constexpr size_t kMaxRecentColors = 8;
+std::vector<COLORREF> LoadRecentColors();
+void SaveRecentColors(const std::vector<COLORREF>& colors);
 
 // 최근 파일 목록 (최신 순, 최대 kMaxRecentFiles개)
 constexpr size_t kMaxRecentFiles = 8;

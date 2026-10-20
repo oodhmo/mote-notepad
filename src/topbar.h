@@ -25,6 +25,9 @@ void SetTopBarFormatState(HWND bar, const FormatState& state);
 // Ctrl+F1~F3(slot 0~2)에 지정된 색. 색상 팝업에서 색을 우클릭해 바꿀 수 있다.
 COLORREF ShortcutColor(int slot);
 
+// 적용한 색을 색상 팝업의 "최근 사용한 색" 맨 앞에 넣는다 (팔레트에 있는 색은 넣지 않는다)
+void AddRecentColor(COLORREF color);
+
 // 색상 팝업이 열려 있는지 (메인 창이 활성 모양을 유지하는 데 사용)
 bool IsColorPopupOpen();
 

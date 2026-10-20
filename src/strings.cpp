@@ -22,6 +22,7 @@ constexpr Entry kStrings[] = {
     {L"Show toolbar (Ctrl+\\)", L"툴바 표시 (Ctrl+\\)"},
     {L"Custom color…", L"사용자 지정 색…"},
     {L"Assign to Ctrl+F%d", L"Ctrl+F%d에 지정"},
+    {L"Recent colors", L"최근 사용한 색"},
 
     {L"(Empty)", L"(없음)"},
     {L"&Clear Recent List", L"목록 지우기(&C)"},

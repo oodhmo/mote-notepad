@@ -64,7 +64,7 @@ You can also see them in the app by pressing **F1** or from **Help > Shortcuts a
 | View and help | Ctrl+\ | Hide / show toolbar |
 | | F1 | Shortcuts and Features |
 
-To change the colors used by Ctrl+F1–F3, **right-click** a color in the toolbar's text color menu. Assigned colors are marked F1/F2/F3.
+To change the colors used by Ctrl+F1–F3, **right-click** a color in the toolbar's text color menu. Assigned colors are marked F1/F2/F3. Colors you pick with Custom color… appear in the **Recent colors** row of the menu (up to 8), and you can assign them the same way.
 
 ### Opening files with "Open with"
 

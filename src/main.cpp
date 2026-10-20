@@ -276,6 +276,7 @@ void RefreshFormatState()
 void ApplyColor(COLORREF color)
 {
     SetSelectionColor(g_app.editor, color);
+    AddRecentColor(color);
     SetFocus(g_app.editor);
     RefreshFormatState();
 }
