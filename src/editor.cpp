@@ -188,24 +188,75 @@ void ApplyPadding(HWND editor)
     SendMessageW(editor, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&rc));
 }
 
-// 첫 글자의 서식 사본 (문서가 비어 있으면 nullptr, 호출자가 Release)
-ITextFont* DuplicateFirstCharFont()
+// range의 서식 사본 (호출자가 Release)
+ITextFont* DuplicateRangeFont(ITextRange* range)
+{
+    ITextFont* duplicate = nullptr;
+    ITextFont* font = nullptr;
+    if (SUCCEEDED(range->GetFont(&font)) && font) {
+        font->GetDuplicate(&duplicate);
+        font->Release();
+    }
+    return duplicate;
+}
+
+// 첫 번째 보이는 글자의 서식 사본 (문서가 비어 있으면 nullptr, 호출자가 Release).
+// 앞쪽 빈 줄의 단락 기호는 색이 보이지 않으므로 건너뛴다.
+ITextFont* DuplicateLeadingTextFont()
 {
     if (!g_textDoc) return nullptr;
     ITextRange* range = nullptr;
-    if (FAILED(g_textDoc->Range(0, 1, &range)) || !range) return nullptr;
+    if (FAILED(g_textDoc->Range(0, 0, &range)) || !range) return nullptr;
     ITextFont* duplicate = nullptr;
     long storyLength = 0;
     range->GetStoryLength(&storyLength);
     if (storyLength > 1) {  // 끝의 단락 기호(EOP)만 있으면 빈 문서
-        ITextFont* font = nullptr;
-        if (SUCCEEDED(range->GetFont(&font)) && font) {
-            font->GetDuplicate(&duplicate);
-            font->Release();
+        const long last = storyLength - 1;
+        long cp = 0;
+        for (; cp < last; ++cp) {
+            range->SetRange(cp, cp + 1);
+            long ch = 0;
+            if (FAILED(range->GetChar(&ch)) || ch != L'\r') break;
         }
+        if (cp == last) cp = 0;  // 단락 기호뿐이면 첫 글자를 쓴다
+        range->SetRange(cp, cp + 1);
+        duplicate = DuplicateRangeFont(range);
     }
     range->Release();
     return duplicate;
+}
+
+// 입력 위치(선택)의 서식 사본 (호출자가 Release)
+ITextFont* DuplicateSelectionFont()
+{
+    ITextSelection* selection = nullptr;
+    if (!g_textDoc || FAILED(g_textDoc->GetSelection(&selection)) || !selection) return nullptr;
+    ITextFont* duplicate = DuplicateRangeFont(selection);
+    selection->Release();
+    return duplicate;
+}
+
+// cp 위치의 글자 (읽을 수 없으면 0)
+long CharAt(long cp)
+{
+    ITextRange* range = nullptr;
+    if (cp < 0 || !g_textDoc || FAILED(g_textDoc->Range(cp, cp + 1, &range)) || !range) return 0;
+    long ch = 0;
+    range->GetChar(&ch);
+    range->Release();
+    return ch;
+}
+
+// 캐럿(빈 선택)이 빈 단락에 있으면 그 단락 기호의 위치를 cp에 담는다
+bool IsCaretInEmptyParagraph(long* cp)
+{
+    CHARRANGE sel;
+    SendMessageW(g_editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&sel));
+    if (sel.cpMin != sel.cpMax) return false;
+    if (CharAt(sel.cpMin) != L'\r') return false;
+    if (sel.cpMin > 0 && CharAt(sel.cpMin - 1) != L'\r') return false;
+    *cp = sel.cpMin;
+    return true;
 }
 
 bool IsDocumentEmpty()
@@ -218,7 +269,9 @@ bool IsDocumentEmpty()
     return storyLength <= 1;
 }
 
-// 빈 문서의 입력 위치 서식을 font로 정한다.
+// 입력 위치 서식을 font로 정한다.
+// 캐럿이 빈 단락에 있으면 그 단락 기호에도 입힌다. RichEdit는 빈 단락에 캐럿이 다시 놓일 때(클릭, 방향키 등)
+// 입력 서식을 단락 기호에서 읽어 오므로, 입력 위치에만 정해 두면 곧 기본색으로 돌아가기 때문이다.
 // 수정 표시와 실행 취소 기록에는 남기지 않는다.
 void ApplyInsertionFont(HWND editor, ITextFont* font)
 {
@@ -226,7 +279,13 @@ void ApplyInsertionFont(HWND editor, ITextFont* font)
     if (FAILED(g_textDoc->GetSelection(&selection)) || !selection) return;
     const LPARAM wasModified = SendMessageW(editor, EM_GETMODIFY, 0, 0);
     g_textDoc->Undo(tomSuspend, nullptr);
-    selection->SetFont(font);
+    long cp = 0;
+    ITextRange* mark = nullptr;
+    if (IsCaretInEmptyParagraph(&cp) && SUCCEEDED(g_textDoc->Range(cp, cp + 1, &mark)) && mark) {
+        mark->SetFont(font);
+        mark->Release();
+    }
+    selection->SetFont(font);  // 문서 서식을 바꾸면 입력 서식이 다시 계산될 수 있어 마지막에 정한다
     g_textDoc->Undo(tomResume, nullptr);
     SendMessageW(editor, EM_SETMODIFY, wasModified, 0);
     selection->Release();
@@ -252,6 +311,23 @@ bool IsDeletingMessage(UINT msg, WPARAM wp)
     }
 }
 
+// 줄을 바꾸는 입력인지 (Enter)
+bool IsNewLineMessage(UINT msg, WPARAM wp)
+{
+    return (msg == WM_KEYDOWN && wp == VK_RETURN) || (msg == WM_CHAR && wp == L'\r');
+}
+
+// 캐럿이 빈 단락에 있으면 지금 입력 서식을 그 단락 기호에도 입혀 둔다
+void KeepInsertionFontOnEmptyParagraph(HWND editor)
+{
+    long cp = 0;
+    if (!g_textDoc || !IsCaretInEmptyParagraph(&cp)) return;
+    ITextFont* font = DuplicateSelectionFont();
+    if (!font) return;
+    ApplyInsertionFont(editor, font);
+    font->Release();
+}
+
 void ShowContextMenu(HWND editor, POINT screenPt)
 {
     if (!g_contextMenu) return;
@@ -266,10 +342,23 @@ LRESULT CALLBACK EditorSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, U
     // Ctrl+A 선택에는 단락 기호가 들어가지 않아 사용자가 고른 색이 사라지므로,
     // 지운 첫 글자의 서식을 빈 문서의 입력 서식으로 이어받게 한다 (워드와 같은 동작).
     if (IsDeletingMessage(msg, wp)) {
-        ITextFont* font = DuplicateFirstCharFont();
+        ITextFont* font = DuplicateLeadingTextFont();
         const LRESULT result = DefSubclassProc(hwnd, msg, wp, lp);
         if (font) {
             if (IsDocumentEmpty()) ApplyInsertionFont(hwnd, font);
+            font->Release();
+        }
+        return result;
+    }
+
+    // Enter로 생긴 빈 줄의 끝은 원래 있던 단락 기호(기본색)라서, 그대로 두면 색이 기본색으로 돌아간다.
+    // Enter 전의 입력 서식을 새 빈 줄에도 이어 준다. (Ctrl+Enter 등 막는 단축키는 아래에서 처리)
+    if (IsNewLineMessage(msg, wp) && !(msg == WM_KEYDOWN && IsBlockedShortcut(wp))) {
+        ITextFont* font = DuplicateSelectionFont();
+        const LRESULT result = DefSubclassProc(hwnd, msg, wp, lp);
+        if (font) {
+            long cp = 0;
+            if (IsCaretInEmptyParagraph(&cp)) ApplyInsertionFont(hwnd, font);
             font->Release();
         }
         return result;
@@ -564,6 +653,7 @@ void ToggleSelectionEffect(HWND editor, DWORD effect)
         cf.bUnderlineType = allOn ? CFU_UNDERLINENONE : CFU_UNDERLINE;
     }
     SendMessageW(editor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+    KeepInsertionFontOnEmptyParagraph(editor);
 }
 
 void SetSelectionColor(HWND editor, COLORREF color)
@@ -575,6 +665,7 @@ void SetSelectionColor(HWND editor, COLORREF color)
     cf.dwEffects = 0;
     cf.crTextColor = color;
     SendMessageW(editor, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+    KeepInsertionFontOnEmptyParagraph(editor);  // 빈 줄에서 고른 색이 캐럿을 옮겨도 남도록
 }
 
 // ---- 찾기 / 바꾸기 ----
