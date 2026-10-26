@@ -443,7 +443,7 @@ CHARFORMAT2W DefaultCharFormat()
     cf.dwEffects = 0;  // CFE_AUTOCOLOR를 쓰지 않는다: 자동 색은 시스템 검정으로 고정되기 때문
     cf.yHeight = kFontSizeTwips;
     cf.crTextColor = DefaultTextColor();
-    wcsncpy_s(cf.szFaceName, UiFontFace(), _TRUNCATE);
+    wcsncpy_s(cf.szFaceName, kEditorFontFace, _TRUNCATE);
     return cf;
 }
 

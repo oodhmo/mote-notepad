@@ -5,6 +5,11 @@
 // TOM의 자동 색(tomAutoColor)과 같은 값. ReplaceTextColor의 인자로 사용한다.
 constexpr long kAutoColor = -9999997;
 
+// 본문 글꼴. UI에 쓰는 "Segoe UI Variable Text"(가변 글꼴)는 한글을 글꼴 연결로 그리는데,
+// 확대(Ctrl+휠) 배율에 따라 한글만 작아지고 자간이 벌어진다(110%, 130%, 90% 등).
+// 일반 "Segoe UI"는 모든 배율에서 한글(맑은 고딕 연결)이 일정하게 그려진다.
+constexpr wchar_t kEditorFontFace[] = L"Segoe UI";
+
 // 파일을 본문에 끌어다 놓으면 부모 창에 보낸다.
 // lParam: new로 만든 std::wstring* (파일 경로). 받는 쪽에서 delete한다.
 constexpr UINT WM_MOTE_OPENFILE = WM_APP + 3;

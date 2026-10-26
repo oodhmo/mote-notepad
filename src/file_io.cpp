@@ -277,6 +277,38 @@ bool StreamOut(HWND editor, UINT format, std::string& out)
     return stream.dwError == 0;
 }
 
+// 예전 버전이 본문 글꼴로 저장한 "Segoe UI Variable ..."을 RTF 글꼴 표에서 본문 글꼴로 바꾼다 (kEditorFontFace 참고).
+// 불러온 뒤 TOM으로 글꼴 이름을 바꾸면 이름은 바뀌어도 확대 시 한글이 깨지는 것은 그대로라서, 읽기 전에 바꾼다.
+// 본문에 같은 문구를 적었을 수 있으므로 글꼴 표({\fonttbl ...}) 안만 고친다.
+void ReplaceLegacyFontNames(std::string& rtf)
+{
+    static const std::string kLegacyPrefix = "Segoe UI Variable";
+    char editorFace[LF_FACESIZE] = {};
+    WideCharToMultiByte(CP_ACP, 0, kEditorFontFace, -1, editorFace, sizeof(editorFace), nullptr, nullptr);
+
+    const size_t tableStart = rtf.find("{\\fonttbl");
+    if (tableStart == std::string::npos) return;
+    // 글꼴 표의 끝: 여는 중괄호와 짝이 맞는 닫는 중괄호 (이스케이프된 \{ \}는 세지 않는다)
+    size_t tableEnd = std::string::npos;
+    int depth = 0;
+    for (size_t i = tableStart; i < rtf.size(); ++i) {
+        if (rtf[i] == '\\') { ++i; continue; }
+        if (rtf[i] == '{') ++depth;
+        else if (rtf[i] == '}' && --depth == 0) { tableEnd = i; break; }
+    }
+    if (tableEnd == std::string::npos) return;
+
+    // 글꼴 이름은 세미콜론으로 끝난다: "Segoe UI Variable Text;" → "Segoe UI;"
+    size_t pos = tableStart;
+    while ((pos = rtf.find(kLegacyPrefix, pos)) != std::string::npos && pos < tableEnd) {
+        const size_t nameEnd = rtf.find(';', pos);
+        if (nameEnd == std::string::npos || nameEnd > tableEnd) break;
+        rtf.replace(pos, nameEnd - pos, editorFace);
+        tableEnd -= (nameEnd - pos) - strlen(editorFace);
+        pos += strlen(editorFace);
+    }
+}
+
 bool GetDialogResultPath(IFileDialog* dialog, std::wstring& path)
 {
     IShellItem* item = nullptr;
@@ -387,6 +419,7 @@ bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& forma
     bool ok;
     TextFileInfo info;
     if (isRtf) {
+        ReplaceLegacyFontNames(bytes);
         ok = StreamIn(editor, bytes.data(), bytes.size(), SF_RTF);
         if (ok) NormalizeLoadedRichText(editor);
     } else {
