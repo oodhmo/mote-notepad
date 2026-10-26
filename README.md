@@ -6,6 +6,11 @@
 
 Windows 메모장처럼 단순하게 쓰면서, 강조하고 싶은 부분에는 글자색과 굵게·기울임꼴·밑줄을 바로 적용할 수 있습니다. 설치 없이 `mote.exe` 하나로 실행됩니다.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/main-dark.png">
+  <img src="docs/images/main-light.png" alt="글자색과 서식을 적용한 mote 화면">
+</picture>
+
 ## 주요 기능
 
 - **글자색**: 선택한 글자에 8가지 기본 색이나 사용자 지정 색을 적용합니다. 자주 쓰는 색 세 개는 Ctrl+F1/F2/F3으로 바로 적용할 수 있습니다.
@@ -29,6 +34,11 @@ Windows 메모장처럼 단순하게 쓰면서, 강조하고 싶은 부분에는
   - 모니터 배율(DPI)이 달라도 선명하게 보입니다.
   - Windows 표시 언어에 따라 한국어/영어로 보입니다.
 
+<div style="display: flex;">
+<img src="docs/images/color-popup.png" alt="글자색 팝업: 기본 색, 최근 사용한 색, F1~F3 단축키 표시" width="320">
+<img src="docs/images/color-popup2.png" alt="글자색 팝업: 사용자지정" width="320">
+</div>
+
 맞춤법 검사, 자동 교정, 클라우드, 계정, 광고, 텔레메트리는 없습니다.
 
 ## 요구 사항
@@ -39,6 +49,15 @@ Windows 메모장처럼 단순하게 쓰면서, 강조하고 싶은 부분에는
 ## 사용법
 
 [Releases](https://github.com/oodhmo/mote-notepad/releases)에서 `mote.exe`를 내려받아 원하는 폴더에 두고 실행합니다.
+
+### 다운로드한 파일 확인
+
+- **SmartScreen 경고**: mote는 코드 서명 인증서가 없어서 처음 실행할 때 "Windows의 PC 보호" 창이 뜰 수 있습니다. **추가 정보 > 실행**을 누르면 됩니다.
+- **파일 무결성**: 각 릴리스 노트에 SHA-256 해시가 있습니다. PowerShell에서 아래 명령으로 나온 값과 같은지 비교합니다.
+  ```powershell
+  Get-FileHash mote.exe -Algorithm SHA256
+  ```
+- **직접 빌드**: 소스가 모두 공개되어 있어 [빌드](#빌드) 방법대로 직접 만들어 쓸 수도 있습니다.
 
 설정(최근 파일, 창 위치, 색 단축키 등)은 레지스트리 `HKCU\Software\mote`에 저장됩니다. 지우려면 먼저 **도움말 > 연결 프로그램에서 mote 제거**로 등록을 없앤 뒤 이 키를 삭제하면 됩니다.
 
@@ -146,6 +165,11 @@ cmake --build --preset release
 4. GitHub 릴리스를 만들고 `mote.exe`를 올립니다. 노트에는 지난 태그 이후의 기능 추가와 수정 내용을 한국어와 영어로 함께 적습니다.
    ```powershell
    gh release create vx.y.z build/Release/mote.exe --title "mote x.y.z" --notes "..."
+   ```
+5. 릴리스 노트에 검증 정보를 추가합니다.
+   - `Get-FileHash build\Release\mote.exe -Algorithm SHA256`으로 얻은 SHA-256 해시
+   ```powershell
+   gh release edit vx.y.z --notes "..."
    ```
 
 ## 라이선스

@@ -6,6 +6,11 @@ An ultra-light Windows notepad that lets you color selected text.
 
 Write as simply as in Windows Notepad, and apply text color, bold, italic or underline to the parts you want to stand out. No installation: just run `mote.exe`.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/main-dark.png">
+  <img src="docs/images/main-light.png" alt="mote with text colors and formatting applied">
+</picture>
+
 ## Features
 
 - **Text color**: Apply one of 8 preset colors or a custom color to the selected text. Your three favorite colors are one keystroke away with Ctrl+F1/F2/F3.
@@ -29,6 +34,8 @@ Write as simply as in Windows Notepad, and apply text color, bold, italic or und
   - Stays sharp across monitors with different scaling (DPI).
   - Shows in Korean or English depending on the Windows display language.
 
+<img src="docs/images/color-popup.png" alt="Text color popup: preset colors, recent colors and F1–F3 shortcut marks" width="320">
+
 No spell check, autocorrect, cloud, accounts, ads or telemetry.
 
 ## Requirements
@@ -39,6 +46,15 @@ No spell check, autocorrect, cloud, accounts, ads or telemetry.
 ## Usage
 
 Download `mote.exe` from [Releases](https://github.com/oodhmo/mote-notepad/releases), put it in any folder and run it.
+
+### Verifying the download
+
+- **SmartScreen warning**: mote has no code signing certificate, so a "Windows protected your PC" window may appear on first run. Click **More info > Run anyway**.
+- **File integrity**: Each release note lists the SHA-256 hash. Compare it with the value from this PowerShell command.
+  ```powershell
+  Get-FileHash mote.exe -Algorithm SHA256
+  ```
+- **Build it yourself**: All source code is public, so you can build it yourself by following [Build](#build).
 
 Settings (recent files, window position, color shortcuts, etc.) are stored in the registry under `HKCU\Software\mote`. To remove them, first click **Help > Remove mote from "Open with"** to remove the registration, then delete this key.
 
@@ -146,6 +162,11 @@ Release steps:
 4. Create a GitHub release and upload `mote.exe`. In the notes, list the features and fixes since the last tag, in both Korean and English.
    ```powershell
    gh release create vx.y.z build/Release/mote.exe --title "mote x.y.z" --notes "..."
+   ```
+5. Add verification info to the release notes.
+   - The SHA-256 hash from `Get-FileHash build\Release\mote.exe -Algorithm SHA256`
+   ```powershell
+   gh release edit vx.y.z --notes "..."
    ```
 
 ## License
