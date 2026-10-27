@@ -5,4 +5,4 @@
 #define MOTE_VERSION_MAJOR 1
 #define MOTE_VERSION_MINOR 0
 #define MOTE_VERSION_PATCH 0
-#define MOTE_VERSION_STR   "1.0.0-beta.5"
+#define MOTE_VERSION_STR   "1.0.0-beta.6"
