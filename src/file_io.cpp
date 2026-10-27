@@ -449,7 +449,9 @@ bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& forma
     SendMessageW(editor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&start));
     SendMessageW(editor, EM_SCROLLCARET, 0, 0);
     MarkEditorClean(editor);
-    format = isRtf ? FileFormat::Rtf : FileFormat::Text;
+    // 빈 .rtf(탐색기에서 새로 만든 파일 등)처럼 헤더가 없어도 .rtf는 RTF로 저장한다.
+    // TXT로 두면 .rtf 파일에 UTF-8 텍스트가 저장되어 다른 프로그램에서 한글이 깨지고 글자색도 사라진다.
+    format = (isRtf || Extension(path) == L".rtf") ? FileFormat::Rtf : FileFormat::Text;
     textInfo = info;
     return true;
 }
