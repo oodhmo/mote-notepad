@@ -11,6 +11,12 @@ namespace {
 
 constexpr ULONGLONG kMaxFileSize = 512ull * 1024 * 1024;  // 메모장 용도로 충분한 상한
 
+// 큰 파일을 읽고 쓰는 동안 멈춘 것처럼 보이지 않도록 대기 커서를 띄운다 (범위를 벗어나면 원래 커서로)
+struct WaitCursor {
+    HCURSOR previous = SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+    ~WaitCursor() { SetCursor(previous); }
+};
+
 std::wstring SystemErrorText(DWORD code)
 {
     wchar_t* buffer = nullptr;
@@ -407,6 +413,8 @@ bool ShowSaveDialog(HWND owner, const std::wstring& currentPath, FileFormat curr
 bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& format, TextFileInfo& textInfo,
                         std::wstring& error)
 {
+    const WaitCursor waitCursor;
+
     // 파일을 먼저 전부 읽어 두어, 읽기 실패 시 현재 문서를 건드리지 않는다
     std::string bytes;
     if (!ReadWholeFile(path, bytes, error)) return false;
@@ -449,6 +457,7 @@ bool LoadFileIntoEditor(HWND editor, const std::wstring& path, FileFormat& forma
 SaveResult SaveEditorToFile(HWND editor, const std::wstring& path, FileFormat format, const TextFileInfo& textInfo,
                             std::wstring& error)
 {
+    const WaitCursor waitCursor;
     std::string bytes;
     bool ok;
     if (format == FileFormat::Text) {
