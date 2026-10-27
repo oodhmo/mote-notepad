@@ -54,6 +54,7 @@ Download `mote.exe` from [Releases](https://github.com/oodhmo/mote-notepad/relea
   ```powershell
   Get-FileHash mote.exe -Algorithm SHA256
   ```
+- **Virus scan**: Each release note links to a [VirusTotal](https://www.virustotal.com) scan result. Because mote is a small unsigned program, some antivirus engines may flag it by mistake (false positive). When that happens, the note lists the number of detections and the reason.
 - **Build it yourself**: All source code is public, so you can build it yourself by following [Build](#build).
 
 Settings (recent files, window position, color shortcuts, etc.) are stored in the registry under `HKCU\Software\mote`. To remove them, first click **Help > Remove mote from "Open with"** to remove the registration, then delete this key.
@@ -115,10 +116,10 @@ Test system: Intel Core i7-1165G7, 16GB RAM, Windows 11 Pro (10.0.26200)
 
 | Item | Result |
 |---|---|
-| Executable size | 316KB |
-| Startup time (until the window is ready for input, median of 10 runs) | 150ms |
-| Idle memory (empty document) | Working set 21MB / private 3.6MB |
-| Opening a 50MB text file | About 3.9 s |
+| Executable size | 339KB |
+| Startup time (until the window is ready for input, median of 10 runs) | 170ms |
+| Idle memory (empty document) | Working set about 28MB / private about 6MB |
+| Opening a 50MB text file (UTF-8, mixed Korean and English, median of 5 runs) | About 5 s |
 
 ## Build
 
@@ -165,6 +166,7 @@ Release steps:
    ```
 5. Add verification info to the release notes.
    - The SHA-256 hash from `Get-FileHash build\Release\mote.exe -Algorithm SHA256`
+   - The result link and detection count from uploading `mote.exe` to [VirusTotal](https://www.virustotal.com). If there are false positives, also note the count and reason. Remove `?nocache=1` from the end of the link.
    ```powershell
    gh release edit vx.y.z --notes "..."
    ```
