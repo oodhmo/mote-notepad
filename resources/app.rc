@@ -136,9 +136,11 @@ BEGIN
     BEGIN
         BLOCK "041204b0"
         BEGIN
+            VALUE "CompanyName",      "oodhmo"
             VALUE "FileDescription",  "mote"
             VALUE "FileVersion",      MOTE_VERSION_STR
             VALUE "InternalName",     "mote"
+            VALUE "LegalCopyright",   "© oodhmo. MIT License."
             VALUE "OriginalFilename", "mote.exe"
             VALUE "ProductName",      "mote"
             VALUE "ProductVersion",   MOTE_VERSION_STR
