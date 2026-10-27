@@ -849,8 +849,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     ULONG_PTR gdiplusToken = 0;
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
 
-    // RichEdit 4.1 이상(RICHEDIT50W) 클래스를 등록한다
-    if (!LoadLibraryW(L"Msftedit.dll")) {
+    // RichEdit 4.1 이상(RICHEDIT50W) 클래스를 등록한다.
+    // exe 폴더에 같은 이름의 DLL이 있어도 불러오지 않도록 System32에서만 찾는다.
+    if (!LoadLibraryExW(L"Msftedit.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
         MessageBoxW(nullptr, Str(StrId::ErrorRichEdit), kAppName, MB_ICONERROR);
         return 1;
     }

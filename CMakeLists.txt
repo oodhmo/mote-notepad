@@ -40,6 +40,8 @@ target_compile_options(mote PRIVATE
 
 target_link_options(mote PRIVATE
     $<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO>
+    # 정적으로 링크한 DLL도 exe 폴더가 아닌 System32에서만 찾는다 (LOAD_LIBRARY_SEARCH_SYSTEM32)
+    /DEPENDENTLOADFLAG:0x800
 )
 
 # 별도 런타임 설치 없이 실행되도록 CRT를 정적으로 링크한다
