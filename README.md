@@ -52,7 +52,12 @@ Windows 메모장처럼 단순하게 쓰면서, 강조하고 싶은 부분에는
 
 ### 다운로드한 파일 확인
 
-- **SmartScreen 경고**: mote는 코드 서명 인증서가 없어서 처음 실행할 때 "Windows의 PC 보호" 창이 뜰 수 있습니다. **추가 정보 > 실행**을 누르면 됩니다.
+- **SmartScreen 경고**: mote는 아직 코드 서명이 없어서 처음 실행할 때 "Windows의 PC 보호" 창이 뜰 수 있습니다. **추가 정보 > 실행**을 누르면 됩니다.
+- **스마트 앱 컨트롤에 차단될 때**: Windows 11에서 스마트 앱 컨트롤이 켜져 있으면, 서명이 없는 mote가 "스마트 앱 컨트롤이 이 앱을 차단했습니다"라며 실행되지 않을 수 있습니다. 이때는 스마트 앱 컨트롤을 끄지 말고(한 번 끄면 다시 켤 수 없는 경우가 있습니다) PowerShell에서 아래 명령으로 인터넷에서 받은 파일이라는 표시를 지운 뒤 다시 실행합니다.
+  ```powershell
+  Unblock-File "C:\내려받은\폴더\mote.exe"
+  ```
+  파일 **속성 > 일반** 아래쪽의 **차단 해제**를 체크하고 확인을 눌러도 같습니다. 코드 서명도 준비하고 있습니다([코드 서명 정책](#코드-서명-정책)).
 - **파일 무결성**: 각 릴리스 노트에 SHA-256 해시가 있습니다. PowerShell에서 아래 명령으로 나온 값과 같은지 비교합니다.
   ```powershell
   Get-FileHash mote.exe -Algorithm SHA256
@@ -163,16 +168,22 @@ cmake --build --preset release
    git tag vx.y.z
    git push origin main --tags
    ```
-4. GitHub 릴리스를 만들고 `mote.exe`를 올립니다. 노트에는 지난 태그 이후의 기능 추가와 수정 내용을 한국어와 영어로 함께 적습니다.
-   ```powershell
-   gh release create vx.y.z build/Release/mote.exe --title "mote x.y.z" --notes "..."
-   ```
-5. 릴리스 노트에 검증 정보를 추가합니다.
-   - `Get-FileHash build\Release\mote.exe -Algorithm SHA256`으로 얻은 SHA-256 해시
-   - [VirusTotal](https://www.virustotal.com)에 `mote.exe`를 올려 얻은 결과 링크와 검출 수. 오탐이 있으면 건수와 이유도 적습니다. 링크 끝의 `?nocache=1`은 뺍니다.
-   ```powershell
-   gh release edit vx.y.z --notes "..."
-   ```
+4. 태그를 푸시하면 GitHub Actions(`.github/workflows/build.yml`)가 태그와 `version.h`가 같은지 확인하고 빌드합니다. SignPath가 연동되어 있으면 서명을 요청하고, [SignPath](https://app.signpath.io)에서 승인하면 서명된 파일로 진행합니다. 끝나면 `mote.exe`와 SHA-256 해시가 담긴 **초안 릴리스**가 만들어집니다. 베타 태그는 사전 릴리스로 표시됩니다.
+5. 초안 노트를 채웁니다.
+   - 지난 태그 이후의 기능 추가와 수정 내용을 한국어와 영어로 함께 적습니다.
+   - 릴리스에 올라간 `mote.exe`를 [VirusTotal](https://www.virustotal.com)에 올려 얻은 결과 링크와 검출 수를 적습니다. 오탐이 있으면 건수와 이유도 적습니다. 링크 끝의 `?nocache=1`은 뺍니다. 로컬 빌드와 해시가 다르므로 반드시 릴리스의 파일로 검사합니다.
+6. 초안을 게시합니다.
+
+## 코드 서명 정책
+
+mote는 [SignPath Foundation](https://signpath.org)의 무료 오픈소스 코드 서명 프로그램을 신청할 예정입니다. 승인되기 전에 배포된 파일은 서명되어 있지 않습니다.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)
+
+- 서명 대상: 이 저장소의 소스로 GitHub Actions에서 빌드한 `mote.exe`만 서명합니다.
+- 커미터와 리뷰어: [oodhmo](https://github.com/oodhmo)
+- 승인자: [oodhmo](https://github.com/oodhmo)
+- 개인정보: mote는 사용자가 직접 요청한 경우를 빼고는 어떤 정보도 다른 네트워크 시스템으로 보내지 않습니다. mote에는 네트워크 기능이 없습니다.
 
 ## 라이선스
 

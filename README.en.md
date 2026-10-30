@@ -49,7 +49,12 @@ Download `mote.exe` from [Releases](https://github.com/oodhmo/mote-notepad/relea
 
 ### Verifying the download
 
-- **SmartScreen warning**: mote has no code signing certificate, so a "Windows protected your PC" window may appear on first run. Click **More info > Run anyway**.
+- **SmartScreen warning**: mote is not code signed yet, so a "Windows protected your PC" window may appear on first run. Click **More info > Run anyway**.
+- **If Smart App Control blocks it**: On Windows 11 with Smart App Control turned on, unsigned mote may fail to start with "Smart App Control blocked an app". Don't turn Smart App Control off (on some PCs it can't be turned back on). Instead, remove the downloaded-from-internet mark with this PowerShell command and run it again.
+  ```powershell
+  Unblock-File "C:\path	o\mote.exe"
+  ```
+  Checking **Unblock** at the bottom of the file's **Properties > General** and clicking OK does the same. Code signing is also in preparation ([Code signing policy](#code-signing-policy)).
 - **File integrity**: Each release note lists the SHA-256 hash. Compare it with the value from this PowerShell command.
   ```powershell
   Get-FileHash mote.exe -Algorithm SHA256
@@ -160,16 +165,22 @@ Release steps:
    git tag vx.y.z
    git push origin main --tags
    ```
-4. Create a GitHub release and upload `mote.exe`. In the notes, list the features and fixes since the last tag, in both Korean and English.
-   ```powershell
-   gh release create vx.y.z build/Release/mote.exe --title "mote x.y.z" --notes "..."
-   ```
-5. Add verification info to the release notes.
-   - The SHA-256 hash from `Get-FileHash build\Release\mote.exe -Algorithm SHA256`
-   - The result link and detection count from uploading `mote.exe` to [VirusTotal](https://www.virustotal.com). If there are false positives, also note the count and reason. Remove `?nocache=1` from the end of the link.
-   ```powershell
-   gh release edit vx.y.z --notes "..."
-   ```
+4. Pushing the tag makes GitHub Actions (`.github/workflows/build.yml`) check that the tag matches `version.h` and build. If SignPath is connected, it submits a signing request and continues with the signed file once approved on [SignPath](https://app.signpath.io). It then creates a **draft release** with `mote.exe` and its SHA-256 hash. Beta tags are marked as pre-releases.
+5. Fill in the draft notes.
+   - List the features and fixes since the last tag, in both Korean and English.
+   - Upload the `mote.exe` from the release to [VirusTotal](https://www.virustotal.com) and add the result link and detection count. If there are false positives, also note the count and reason. Remove `?nocache=1` from the end of the link. The hash differs from a local build, so always scan the file from the release.
+6. Publish the draft.
+
+## Code signing policy
+
+mote plans to apply to the free open source code signing program of [SignPath Foundation](https://signpath.org). Files released before approval are not signed.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)
+
+- What is signed: only `mote.exe` built by GitHub Actions from the source in this repository.
+- Committers and reviewers: [oodhmo](https://github.com/oodhmo)
+- Approvers: [oodhmo](https://github.com/oodhmo)
+- Privacy: This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. mote has no network features.
 
 ## License
 
