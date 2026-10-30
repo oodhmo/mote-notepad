@@ -1,0 +1,88 @@
+# mote 빌드와 릴리스
+# - main 푸시, PR: Release 빌드 후 mote.exe를 아티팩트로 올린다
+# - v* 태그 푸시: 위에 더해 SignPath 서명(설정된 경우)을 거쳐 초안 릴리스를 만든다
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 태그와 version.h의 문자열이 다르면 잘못된 버전으로 릴리스되므로 막는다
+      - name: 태그와 버전 일치 확인
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $line = Select-String -Path resources/version.h -Pattern '#define MOTE_VERSION_STR\s+"(.+)"'
+          $version = $line.Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            Write-Error "태그(${{ github.ref_name }})와 version.h($version)가 다릅니다."
+            exit 1
+          }
+
+      - name: 빌드
+        run: |
+          cmake --preset vs2022
+          cmake --build --preset release
+
+      - name: 아티팩트 업로드
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mote
+          path: build/Release/mote.exe
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      # SignPath 연동 전(변수 미설정)에는 서명 없이 빌드 결과를 그대로 쓴다
+      - name: SignPath 서명 요청
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: mote-notepad
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ needs.build.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist
+
+      - name: 서명 전 아티팩트 내려받기
+        if: vars.SIGNPATH_ORGANIZATION_ID == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: mote
+          path: dist
+
+      # 노트는 사람이 작성해 게시하도록 초안으로 만든다
+      - name: 초안 릴리스 생성
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $hash = (Get-FileHash dist/mote.exe -Algorithm SHA256).Hash
+          $notes = "SHA-256: ``$hash``"
+          $flags = @('--draft')
+          if ($tag -like '*-beta.*') { $flags += '--prerelease' }
+          gh release create $tag dist/mote.exe --repo "${{ github.repository }}" `
+            --title "mote $($tag.Substring(1))" --notes $notes @flags
